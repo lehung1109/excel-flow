@@ -1,0 +1,129 @@
+import sharp from "sharp";
+import fs from "fs";
+import path from "path";
+
+const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10B981" />
+      <stop offset="100%" stop-color="#047857" />
+    </linearGradient>
+    <linearGradient id="sheetGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.98" />
+      <stop offset="100%" stop-color="#F0FDF4" stop-opacity="0.95" />
+    </linearGradient>
+    <filter id="dropShadow" x="-10%" y="-10%" width="125%" height="125%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#064E3B" flood-opacity="0.3" />
+    </filter>
+  </defs>
+
+  <!-- Background rounded card -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)" />
+
+  <!-- Sheet container with shadow -->
+  <g filter="url(#dropShadow)">
+    <rect x="80" y="80" width="352" height="352" rx="32" fill="url(#sheetGrad)" />
+  </g>
+
+  <!-- Sheet Header Bar -->
+  <path d="M 80 112 C 80 94.3 94.3 80 112 80 L 400 80 C 417.7 80 432 94.3 432 112 L 432 168 L 80 168 Z" fill="#059669" />
+  
+  <!-- Excel 'X' badge top-left -->
+  <rect x="108" y="104" width="44" height="40" rx="8" fill="#FFFFFF" fill-opacity="0.2" />
+  <path d="M 120 114 L 140 134 M 140 114 L 120 134" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round" />
+
+  <!-- Header Column indicators -->
+  <rect x="174" y="114" width="68" height="20" rx="6" fill="#FFFFFF" fill-opacity="0.75" />
+  <rect x="258" y="114" width="68" height="20" rx="6" fill="#FFFFFF" fill-opacity="0.75" />
+  <rect x="342" y="114" width="62" height="20" rx="6" fill="#34D399" />
+
+  <!-- Table Grid Lines -->
+  <line x1="196" y1="168" x2="196" y2="432" stroke="#D1FAE5" stroke-width="3" />
+  <line x1="312" y1="168" x2="312" y2="432" stroke="#D1FAE5" stroke-width="3" />
+
+  <!-- Row separators -->
+  <line x1="80" y1="234" x2="432" y2="234" stroke="#E2E8F0" stroke-width="3" />
+  <line x1="80" y1="300" x2="432" y2="300" stroke="#E2E8F0" stroke-width="3" />
+  <line x1="80" y1="366" x2="432" y2="366" stroke="#E2E8F0" stroke-width="3" />
+
+  <!-- Data Rows (Source data: muted slate) -->
+  <rect x="108" y="191" width="64" height="20" rx="5" fill="#94A3B8" fill-opacity="0.4" />
+  <rect x="220" y="191" width="68" height="20" rx="5" fill="#94A3B8" fill-opacity="0.4" />
+
+  <rect x="108" y="257" width="64" height="20" rx="5" fill="#94A3B8" fill-opacity="0.4" />
+  <rect x="220" y="257" width="68" height="20" rx="5" fill="#94A3B8" fill-opacity="0.4" />
+
+  <rect x="108" y="323" width="64" height="20" rx="5" fill="#94A3B8" fill-opacity="0.4" />
+  <rect x="220" y="323" width="68" height="20" rx="5" fill="#94A3B8" fill-opacity="0.4" />
+
+  <!-- Enriched / Crawled Column (Vibrant Emerald) -->
+  <rect x="336" y="191" width="72" height="20" rx="5" fill="#059669" />
+  <rect x="336" y="257" width="72" height="20" rx="5" fill="#059669" />
+
+  <!-- Dynamic Scraper / Flow badge (bottom right) -->
+  <g transform="translate(290, 290)">
+    <circle cx="86" cy="86" r="62" fill="#064E3B" opacity="0.9" />
+    <circle cx="86" cy="86" r="54" fill="#059669" />
+    <!-- Flow lightning / download arrow -->
+    <path d="M 86 56 L 86 100 M 68 84 L 86 102 L 104 84" stroke="#FFFFFF" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" />
+    <path d="M 64 116 L 108 116" stroke="#34D399" stroke-width="6" stroke-linecap="round" />
+  </g>
+</svg>`;
+
+async function run() {
+  const appDir = path.join(process.cwd(), "app");
+  const svgPath = path.join(appDir, "icon.svg");
+  fs.writeFileSync(svgPath, svg.trim());
+  console.log("Wrote icon.svg to", svgPath);
+
+  // Generate PNG sizes
+  const sizes = [16, 32, 48];
+  const pngBuffers = await Promise.all(
+    sizes.map((size) =>
+      sharp(Buffer.from(svg))
+        .resize(size, size)
+        .png()
+        .toBuffer()
+    )
+  );
+
+  // Package into standard ICO format
+  // ICO header: 6 bytes
+  // Directory entries: 16 bytes each
+  // Image buffers: sequentially
+  const count = sizes.length;
+  const headerSize = 6;
+  const dirSize = 16 * count;
+  let offset = headerSize + dirSize;
+
+  const header = Buffer.alloc(6);
+  header.writeUInt16LE(0, 0); // reserved
+  header.writeUInt16LE(1, 2); // ICO type
+  header.writeUInt16LE(count, 4); // count
+
+  const dirEntries = [];
+  for (let i = 0; i < count; i++) {
+    const size = sizes[i];
+    const buf = pngBuffers[i];
+    const entry = Buffer.alloc(16);
+    entry.writeUInt8(size >= 256 ? 0 : size, 0); // width
+    entry.writeUInt8(size >= 256 ? 0 : size, 1); // height
+    entry.writeUInt8(0, 2); // color count
+    entry.writeUInt8(0, 3); // reserved
+    entry.writeUInt16LE(1, 4); // color planes
+    entry.writeUInt16LE(32, 6); // bpp
+    entry.writeUInt32LE(buf.length, 8); // size
+    entry.writeUInt32LE(offset, 12); // offset
+    dirEntries.push(entry);
+    offset += buf.length;
+  }
+
+  const icoBuffer = Buffer.concat([header, ...dirEntries, ...pngBuffers]);
+  fs.writeFileSync(path.join(appDir, "favicon.ico"), icoBuffer);
+  // Also write to public/favicon.ico if desired
+  fs.writeFileSync(path.join(process.cwd(), "public", "favicon.ico"), icoBuffer);
+  fs.writeFileSync(path.join(process.cwd(), "public", "icon.svg"), svg.trim());
+  console.log("Successfully generated favicon.ico (multi-res 16, 32, 48) and icon.svg");
+}
+
+run().catch(console.error);
