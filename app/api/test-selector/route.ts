@@ -50,7 +50,13 @@ export async function POST(req: NextRequest) {
             { status: 400 }
           );
         }
-        const fId = String((f as { id?: unknown }).id || "");
+        const fId = String((f as { id?: unknown }).id || "").trim();
+        if (!fId) {
+          return NextResponse.json(
+            { success: false, error: "Mỗi field phải có trường 'id' không rỗng." },
+            { status: 400 }
+          );
+        }
         const rawSels = (f as { selectors?: unknown }).selectors;
         const cleaned = Array.isArray(rawSels)
           ? rawSels

@@ -18,19 +18,38 @@ export function getSql() {
   return neon(connectionString);
 }
 
-export async function initDb(): Promise<void> {
-  const sql = getSql();
-  await sql`
-    CREATE TABLE IF NOT EXISTS saved_configs (
-      id SERIAL PRIMARY KEY,
-      name VARCHAR(255) NOT NULL,
-      description TEXT,
-      fields JSONB NOT NULL,
-      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-    );
-  `;
+let initPromise: Promise<void> | null = null;
+
+export function resetDbInitForTesting() {
+  initPromise = null;
 }
+
+export async function initDb(): Promise<void> {
+  if (!initPromise) {
+    initPromise = (async () => {
+      const sql = getSql();
+      await sql`
+        CREATE TABLE IF NOT EXISTS saved_configs (
+          id SERIAL PRIMARY KEY,
+          name VARCHAR(255) NOT NULL,
+          description TEXT,
+          fields JSONB NOT NULL,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+      `;
+      try {
+        await sql`
+          CREATE INDEX IF NOT EXISTS idx_saved_configs_updated_at ON saved_configs (updated_at DESC);
+        `;
+      } catch {
+        // ignore index creation errors if already exists
+      }
+    })();
+  }
+  return initPromise;
+}
+
 
 export async function getSavedConfigs(): Promise<SavedConfigRecord[]> {
   const sql = getSql();

@@ -12,7 +12,15 @@ export async function PUT(
       return NextResponse.json({ success: false, error: "ID không hợp lệ." }, { status: 400 });
     }
 
-    const body = await req.json();
+    let body: any;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json(
+        { success: false, error: "Dữ liệu JSON không hợp lệ." },
+        { status: 400 }
+      );
+    }
     const { name, description, fields } = body || {};
 
     if (!name || typeof name !== "string" || name.trim().length === 0) {

@@ -95,6 +95,19 @@ describe("Configs API Routes", () => {
       expect(resNo.status).toBe(400);
     });
 
+    it("returns 400 when request body contains invalid JSON", async () => {
+      const badJsonReq = new NextRequest("http://localhost:3000/api/configs", {
+        method: "POST",
+        body: "not-json-string{",
+        headers: { "Content-Type": "application/json" },
+      });
+      const res = await postConfig(badJsonReq);
+      const json = await res.json();
+      expect(res.status).toBe(400);
+      expect(json.success).toBe(false);
+      expect(json.error).toBe("Dữ liệu JSON không hợp lệ.");
+    });
+
     it("returns 500 when createSavedConfig throws an error", async () => {
       spyOn(db, "createSavedConfig").mockRejectedValue(new Error("Insert failed"));
 
@@ -165,8 +178,21 @@ describe("Configs API Routes", () => {
         body: JSON.stringify({ name: "Valid Name", fields: [] }),
         headers: { "Content-Type": "application/json" },
       });
-      const resNoFields = await putConfig(reqNoFields, { params: Promise.resolve({ id: "2" }) });
-      expect(resNoFields.status).toBe(400);
+      const resNo = await putConfig(reqNoFields, { params: Promise.resolve({ id: "2" }) });
+      expect(resNo.status).toBe(400);
+    });
+
+    it("returns 400 for invalid JSON body", async () => {
+      const badReq = new NextRequest("http://localhost:3000/api/configs/2", {
+        method: "PUT",
+        body: "bad-json-syntax{",
+        headers: { "Content-Type": "application/json" },
+      });
+      const res = await putConfig(badReq, { params: Promise.resolve({ id: "2" }) });
+      const json = await res.json();
+      expect(res.status).toBe(400);
+      expect(json.success).toBe(false);
+      expect(json.error).toBe("Dữ liệu JSON không hợp lệ.");
     });
 
     it("returns 404 when config is not found", async () => {

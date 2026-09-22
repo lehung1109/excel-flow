@@ -12,8 +12,17 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  let body: any;
   try {
-    const body = await req.json();
+    body = await req.json();
+  } catch {
+    return NextResponse.json(
+      { success: false, error: "Dữ liệu JSON không hợp lệ." },
+      { status: 400 }
+    );
+  }
+
+  try {
     const { name, description, fields } = body || {};
 
     if (!name || typeof name !== "string" || name.trim().length === 0) {

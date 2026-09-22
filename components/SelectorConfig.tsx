@@ -138,22 +138,9 @@ export default function SelectorConfig({
   }
 
   useEffect(() => {
-    let isMounted = true;
-    fetch("/api/configs")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (isMounted && data?.success && Array.isArray(data.configs)) {
-          setSavedConfigs(data.configs);
-        }
-      })
-      .catch(() => {
-        // ignore fetch errors during SSR or static testing
-      });
-
-    return () => {
-      isMounted = false;
-    };
+    fetchConfigs();
   }, []);
+
 
   // Neon DB Action Handlers
   function handleSelectConfig(configIdStr: string) {
