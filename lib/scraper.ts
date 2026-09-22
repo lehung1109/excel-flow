@@ -163,26 +163,14 @@ async function run() {
         if (el) {
           const raw = await el.textContent();
           if (raw && raw.trim()) {
-            const clean = raw
-              .replace(/&nbsp;/gi, " ")
-              .replace(/&quot;/gi, '"')
-              .replace(/&#39;/gi, "'")
-              .replace(/&lt;/gi, "<")
-              .replace(/&gt;/gi, ">")
-              .replace(/&amp;/gi, "&")
-              .replace(/[\\r\\n\\t]+/g, " ")
-              .replace(/\\s{2,}/g, " ")
-              .trim();
-            if (clean) {
-              process.stdout.write(JSON.stringify({
-                text: clean,
-                selector: sel,
-                method: "browser",
-                durationMs: Date.now() - start
-              }));
-              await browser.close();
-              process.exit(0);
-            }
+            process.stdout.write(JSON.stringify({
+              text: raw,
+              selector: sel,
+              method: "browser",
+              durationMs: Date.now() - start
+            }));
+            await browser.close();
+            process.exit(0);
           }
         }
       } catch {}
@@ -225,8 +213,14 @@ run();
         if (code === 0 && stdout) {
           try {
             const parsed = JSON.parse(stdout.trim());
-            if (parsed && typeof parsed === "object" && parsed.text) {
-              return resolve(parsed as SelectorMatch);
+            if (parsed && typeof parsed === "object" && typeof parsed.text === "string") {
+              const clean = sanitizeExtractedText(parsed.text);
+              if (clean) {
+                return resolve({
+                  ...parsed,
+                  text: clean,
+                } as SelectorMatch);
+              }
             }
           } catch {}
         }
@@ -369,6 +363,16 @@ export interface MultiFieldMatch {
   matchedSelector: string;
 }
 
+function createEmptyMultiFieldResult(
+  fields: MultiFieldTarget[]
+): Record<string, MultiFieldMatch | null> {
+  const result: Record<string, MultiFieldMatch | null> = {};
+  for (const f of fields) {
+    result[f.id] = null;
+  }
+  return result;
+}
+
 async function scrapeDynamicMultiViaNodeWorker(
   url: string,
   fields: MultiFieldTarget[],
@@ -406,20 +410,8 @@ async function run() {
           if (el) {
             const raw = await el.textContent();
             if (raw && raw.trim()) {
-              const clean = raw
-                .replace(/&nbsp;/gi, " ")
-                .replace(/&quot;/gi, '"')
-                .replace(/&#39;/gi, "'")
-                .replace(/&lt;/gi, "<")
-                .replace(/&gt;/gi, ">")
-                .replace(/&amp;/gi, "&")
-                .replace(/[\\\\r\\\\n\\\\t]+/g, " ")
-                .replace(/\\\\s{2,}/g, " ")
-                .trim();
-              if (clean) {
-                result[f.id] = { text: clean, matchedSelector: sel };
-                break;
-              }
+              result[f.id] = { text: raw, matchedSelector: sel };
+              break;
             }
           }
         } catch {}
@@ -451,7 +443,7 @@ run();
         try {
           child.kill();
         } catch {}
-        resolve({});
+        resolve(createEmptyMultiFieldResult(fields));
       }, timeoutMs + 4000);
 
       child.stdout.on("data", (chunk: Buffer) => {
@@ -464,23 +456,36 @@ run();
           try {
             const parsed = JSON.parse(stdout.trim());
             if (parsed && typeof parsed === "object") {
-              return resolve(parsed);
+              const res = createEmptyMultiFieldResult(fields);
+              for (const f of fields) {
+                const item = parsed[f.id];
+                if (item && typeof item === "object" && typeof item.text === "string") {
+                  const cleaned = sanitizeExtractedText(item.text);
+                  if (cleaned) {
+                    res[f.id] = {
+                      text: cleaned,
+                      matchedSelector: String(item.matchedSelector || ""),
+                    };
+                  }
+                }
+              }
+              return resolve(res);
             }
           } catch {}
         }
-        resolve({});
+        resolve(createEmptyMultiFieldResult(fields));
       });
 
       child.on("error", () => {
         clearTimeout(timer);
-        resolve({});
+        resolve(createEmptyMultiFieldResult(fields));
       });
 
       child.stdin.write(payload);
       child.stdin.end();
     });
   } catch {
-    return {};
+    return createEmptyMultiFieldResult(fields);
   }
 }
 
@@ -497,13 +502,10 @@ export async function scrapeBrowserMulti(
   }
 
   if (process.env.VERCEL) {
-    return {};
+    return createEmptyMultiFieldResult(fields);
   }
 
-  const result: Record<string, MultiFieldMatch | null> = {};
-  for (const f of fields) {
-    result[f.id] = null;
-  }
+  const result: Record<string, MultiFieldMatch | null> = createEmptyMultiFieldResult(fields);
 
   let context: BrowserContext | null = null;
   let page: Page | null = null;

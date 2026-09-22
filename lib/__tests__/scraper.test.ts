@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, mock } from "bun:test";
 import * as scraper from "../scraper";
-import { closeBrowser, scrapeHybrid, scrapeMultiField, scrapeStatic } from "../scraper";
+import { closeBrowser, scrapeBrowserMulti, scrapeHybrid, scrapeMultiField, scrapeStatic } from "../scraper";
 
 describe("scraper", () => {
   let server: ReturnType<typeof Bun.serve>;
@@ -36,6 +36,19 @@ describe("scraper", () => {
             <html>
               <body>
                 <div class="empty-div"></div>
+              </body>
+            </html>`,
+            { headers: { "Content-Type": "text/html; charset=utf-8" } }
+          );
+        }
+
+        if (url.pathname === "/dynamic-text-page") {
+          return new Response(
+            `<!DOCTYPE html>
+            <html>
+              <body>
+                <div class="product-banner">Return trend cotton product &amp; notes</div>
+                <span class="discount-rate">45% off storewide</span>
               </body>
             </html>`,
             { headers: { "Content-Type": "text/html; charset=utf-8" } }
@@ -235,6 +248,61 @@ describe("scraper", () => {
       const results = await scrapeMultiField(`${baseUrl}/not-found`, fields);
       expect(results.title).toBeNull();
       expect(results.desc).toBeNull();
+    });
+
+    it("scrapeBrowserMulti extracts text containing r, n, t without corruption", async () => {
+      const fields = [
+        { id: "banner", selectors: [".product-banner"] },
+        { id: "discount", selectors: [".discount-rate"] },
+        { id: "missing", selectors: [".non-existent-selector"] },
+      ];
+
+      const results = await scrapeBrowserMulti(`${baseUrl}/dynamic-text-page`, fields);
+
+      // Verify characters 'r', 'n', 't' are completely preserved
+      expect(results.banner?.text).toBe("Return trend cotton product & notes");
+      expect(results.banner?.matchedSelector).toBe(".product-banner");
+
+      expect(results.discount?.text).toBe("45% off storewide");
+      expect(results.discount?.matchedSelector).toBe(".discount-rate");
+
+      // Verify non-matching field is explicitly null
+      expect(results.missing).toBeNull();
+    });
+
+    it("scrapeBrowserMulti returns all requested field keys with null when no selectors match", async () => {
+      const fields = [
+        { id: "field_a", selectors: [".missing-a"] },
+        { id: "field_b", selectors: [".missing-b"] },
+      ];
+
+      const results = await scrapeBrowserMulti(`${baseUrl}/empty-page`, fields);
+
+      expect(Object.keys(results).sort()).toEqual(["field_a", "field_b"]);
+      expect(results.field_a).toBeNull();
+      expect(results.field_b).toBeNull();
+    });
+
+    it("scrapeMultiField falls back to browser when static fetch fails or is bypassed", async () => {
+      // Mock fetch to simulate static network failure
+      const originalFetch = globalThis.fetch;
+      try {
+        globalThis.fetch = mock(() => Promise.reject(new Error("Network Error"))) as any;
+
+        const fields = [
+          { id: "banner", selectors: [".product-banner"] },
+          { id: "missing", selectors: [".non-existent"] },
+        ];
+
+        const results = await scrapeMultiField(`${baseUrl}/dynamic-text-page`, fields);
+
+        // Fallback to browser worked and preserved r, n, t
+        expect(results.banner?.text).toBe("Return trend cotton product & notes");
+        expect(results.banner?.matchedSelector).toBe(".product-banner");
+        expect(results.missing).toBeNull();
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
     });
   });
 });
