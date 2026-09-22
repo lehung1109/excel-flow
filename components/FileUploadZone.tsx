@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useRef, useState } from "react";
-import { UploadCloud, FileSpreadsheet, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
+import { UploadCloud, FileSpreadsheet, CheckCircle, AlertCircle, Loader2, Download } from "lucide-react";
 import type { ExcelColumnInfo, ExcelSheetSummary } from "@/types/crawler";
 
 export interface FileUploadZoneProps {
@@ -138,10 +138,21 @@ export default function FileUploadZone({
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-      <h2 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
-        <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
-        Bước 1: Tải lên file Excel
-      </h2>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+        <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+          <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
+          Bước 1: Tải lên file Excel
+        </h2>
+        <a
+          href="/demo_sample.xlsx"
+          download="demo_sample.xlsx"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-medium transition self-start sm:self-auto"
+          title="Tải file Excel có sẵn dữ liệu và URL mẫu để test ngay"
+        >
+          <Download className="w-3.5 h-3.5" />
+          Tải file Excel mẫu (.xlsx)
+        </a>
+      </div>
 
       <div
         onDragOver={(e) => {
