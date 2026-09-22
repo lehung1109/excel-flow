@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { normalizeUrl } from "@/lib/url-utils";
 import { scrapeHybrid } from "@/lib/scraper";
 
+export const maxDuration = 60;
+export const dynamic = "force-dynamic";
+
 export async function POST(req: NextRequest) {
   try {
     let body: unknown;

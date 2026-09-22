@@ -228,6 +228,12 @@ export async function scrapeDynamic(
     return await scrapeDynamicViaNodeWorker(url, selectors, 8000);
   }
 
+  // In Vercel Serverless environment, local Playwright browser binaries are not installed.
+  // Return null immediately rather than hanging for 10s and triggering 504 Gateway Timeout.
+  if (process.env.VERCEL) {
+    return null;
+  }
+
   const startTime = Date.now();
   let context: BrowserContext | null = null;
   let page: Page | null = null;

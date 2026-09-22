@@ -25,6 +25,8 @@ export interface LiveProgressDashboardProps {
   logs: CrawlRowResult[];
   summary: CrawlJobSummary | null;
   downloadId: string | null;
+  downloadUrl?: string | null;
+  downloadFilename?: string | null;
   onStart: () => void;
   onAbort: () => void;
   canStart: boolean;
@@ -47,6 +49,8 @@ export default function LiveProgressDashboard({
   logs,
   summary,
   downloadId,
+  downloadUrl,
+  downloadFilename,
   onStart,
   onAbort,
   canStart,
@@ -77,7 +81,7 @@ export default function LiveProgressDashboard({
         <div>
           <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
             <Activity className="w-5 h-5 text-emerald-600" />
-            <span>Bước 3: Tiến trình Cào dữ liệu & Kết quả</span>
+            <span>Bước 3: Tiến trình Cào dữ liệu &amp; Kết quả</span>
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
             Theo dõi tiến độ xử lý song song và tải file Excel kết quả đã điền dữ liệu
@@ -111,10 +115,10 @@ export default function LiveProgressDashboard({
             </button>
           )}
 
-          {downloadId && (
+          {(downloadUrl || downloadId) && (
             <a
-              href={`/api/download/${downloadId}`}
-              download
+              href={downloadUrl || `/api/download/${downloadId}`}
+              download={downloadFilename || true}
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium text-sm bg-blue-600 hover:bg-blue-700 text-white cursor-pointer shadow-sm transition-all active:scale-[0.99]"
             >
               <Download className="w-4 h-4" />

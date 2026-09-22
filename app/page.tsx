@@ -66,6 +66,8 @@ export default function Home() {
   const [logs, setLogs] = useState<CrawlRowResult[]>([]);
   const [summary, setSummary] = useState<CrawlJobSummary | null>(null);
   const [downloadId, setDownloadId] = useState<string | null>(null);
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [downloadFilename, setDownloadFilename] = useState<string | null>(null);
 
   // Test modal state
   const [isTestModalOpen, setIsTestModalOpen] = useState<boolean>(false);
@@ -118,6 +120,8 @@ export default function Home() {
     setLogs([]);
     setSummary(null);
     setDownloadId(null);
+    setDownloadUrl(null);
+    setDownloadFilename(null);
     setProgressPercent(0);
     setProcessedCount(0);
     setTotalCount(0);
@@ -182,6 +186,8 @@ export default function Home() {
     setLogs([]);
     setSummary(null);
     setDownloadId(null);
+    setDownloadUrl(null);
+    setDownloadFilename(null);
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -203,13 +209,30 @@ export default function Home() {
 
       if (!response.ok) {
         let errorMessage = "Đã xảy ra lỗi khi gửi yêu cầu.";
-        try {
-          const errJson = await response.json();
-          if (errJson?.error) {
-            errorMessage = errJson.error;
+        const contentType = response.headers.get("content-type") || "";
+
+        if (contentType.includes("application/json")) {
+          try {
+            const errJson = await response.json();
+            if (errJson?.error) {
+              errorMessage = errJson.error;
+            }
+          } catch {
+            // ignore error parsing
           }
-        } catch {
-          // ignore error parsing
+        } else {
+          if (response.status === 504) {
+            errorMessage =
+              "Quá thời gian xử lý trên Vercel (504 Gateway Timeout). Vui lòng crawl ít dòng hơn mỗi lần.";
+          } else if (response.status === 413) {
+            errorMessage =
+              "Dung lượng file vượt quá giới hạn 4.5 MB của Vercel Serverless Function.";
+          } else if (response.status === 500) {
+            errorMessage =
+              "Máy chủ Vercel gặp sự cố (500 Internal Server Error). Vui lòng kiểm tra log trên Vercel.";
+          } else {
+            errorMessage = `Máy chủ phản hồi mã lỗi HTTP ${response.status}.`;
+          }
         }
 
         setLogs((prev) => [
@@ -280,6 +303,26 @@ export default function Home() {
               ]);
             } else if (eventType === "complete") {
               setDownloadId(data.downloadId);
+              if (data.fileBase64 && typeof window !== "undefined") {
+                try {
+                  const binaryStr = window.atob(data.fileBase64);
+                  const len = binaryStr.length;
+                  const bytes = new Uint8Array(len);
+                  for (let i = 0; i < len; i++) {
+                    bytes[i] = binaryStr.charCodeAt(i);
+                  }
+                  const blob = new Blob([bytes], {
+                    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                  });
+                  const blobUrl = URL.createObjectURL(blob);
+                  setDownloadUrl(blobUrl);
+                  if (data.filename) {
+                    setDownloadFilename(data.filename);
+                  }
+                } catch {
+                  // fallback to downloadId
+                }
+              }
               setSummary(data.summary);
               setProgressPercent(100);
             } else if (eventType === "error") {
@@ -408,6 +451,8 @@ export default function Home() {
             logs={logs}
             summary={summary}
             downloadId={downloadId}
+            downloadUrl={downloadUrl}
+            downloadFilename={downloadFilename}
             onStart={handleStartCrawl}
             onAbort={handleAbortCrawl}
             canStart={canStart}

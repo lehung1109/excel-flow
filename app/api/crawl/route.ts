@@ -7,6 +7,9 @@ import { saveTempFile } from "@/lib/temp-store";
 import { calculateETA, normalizeUrl } from "@/lib/url-utils";
 import type { TargetColumnConfig } from "@/types/crawler";
 
+export const maxDuration = 60;
+export const dynamic = "force-dynamic";
+
 function extractCellUrlValue(cell: ExcelJS.Cell): unknown {
   const val = cell.value;
   if (val === null || val === undefined) {
@@ -379,6 +382,8 @@ export async function POST(req: NextRequest) {
         sendEvent("complete", {
           success: true,
           downloadId,
+          filename: outputFilename,
+          fileBase64: enrichedBuffer.toString("base64"),
           summary: {
             total: totalRows,
             succeeded: succeededCount,

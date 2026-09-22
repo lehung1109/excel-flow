@@ -82,12 +82,33 @@ export default function TestSelectorModal({
         }),
       });
 
-      const data = await response.json();
+      const contentType = response.headers.get("content-type") || "";
+      let data: any = null;
 
-      if (response.ok) {
+      if (contentType.includes("application/json")) {
+        try {
+          data = await response.json();
+        } catch {
+          // JSON parse failed
+        }
+      }
+
+      if (response.ok && data) {
         setResult(data);
+      } else if (data?.error) {
+        setGeneralError(data.error);
+      } else if (response.status === 504) {
+        setGeneralError(
+          "Yêu cầu quá thời gian chờ (504 Gateway Timeout). Website phản hồi quá chậm hoặc chặn bot từ Vercel."
+        );
+      } else if (response.status === 500) {
+        setGeneralError(
+          "Máy chủ gặp sự cố (500 Internal Server Error). Vui lòng kiểm tra log trên Vercel."
+        );
       } else {
-        setGeneralError(data?.error || "Đã xảy ra lỗi khi kiểm tra selector.");
+        setGeneralError(
+          `Đã xảy ra lỗi khi kiểm tra selector (HTTP ${response.status}).`
+        );
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Không thể kết nối đến máy chủ.";
