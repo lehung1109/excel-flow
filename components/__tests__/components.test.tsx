@@ -1,9 +1,9 @@
-import { describe, expect, it, mock } from "bun:test";
+import { describe, expect, it } from "bun:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import FileUploadZone from "../FileUploadZone";
-import SelectorConfig from "../SelectorConfig";
-import type { ExcelColumnInfo, ExcelSheetSummary, TargetColumnConfig } from "@/types/crawler";
+import SelectorConfig, { createDefaultField } from "../SelectorConfig";
+import type { ExcelColumnInfo, ExtractionFieldConfig } from "@/types/crawler";
 
 describe("FileUploadZone Component", () => {
   it("renders upload zone container, title, and initial drag/drop prompt", () => {
@@ -41,9 +41,22 @@ describe("SelectorConfig Component", () => {
     { index: 3, header: "Product URL" },
   ];
 
-  it("renders configuration title, URL column options, and selector presets", () => {
-    const targetConfig: TargetColumnConfig = { mode: "new", colName: "Scraped_Title" };
-    const selectors = ["h1.title", ".price"];
+  const sampleFields: ExtractionFieldConfig[] = [
+    {
+      id: "field_1",
+      name: "Tiêu đề sản phẩm",
+      selectors: ["h1.product-title", "h1.entry-title"],
+      targetColumn: { mode: "new", colName: "Tieu_De_SP" },
+    },
+    {
+      id: "field_2",
+      name: "Giá bán",
+      selectors: [".price", ".product-price"],
+      targetColumn: { mode: "existing", colIndex: 2 },
+    },
+  ];
+
+  it("SelectorConfig renders multi-field manager and does NOT render quick presets", () => {
     const rowRange = { startRow: 2, endRow: 100 };
 
     const html = renderToStaticMarkup(
@@ -52,49 +65,109 @@ describe("SelectorConfig Component", () => {
         totalRows={100}
         urlColIndex={3}
         onUrlColChange={() => {}}
-        selectors={selectors}
-        onSelectorsChange={() => {}}
-        targetConfig={targetConfig}
-        onTargetConfigChange={() => {}}
+        fields={sampleFields}
+        onFieldsChange={() => {}}
         rowRange={rowRange}
         onRowRangeChange={() => {}}
         onTestRequested={() => {}}
       />
     );
 
+    // Header & URL Column
     expect(html).toContain("Bước 2: Cấu hình trích xuất dữ liệu");
-    expect(html).toContain("1. Chọn Cột chứa URL");
-    expect(html).toContain("Cột 1: ID");
-    expect(html).toContain("Cột 2: Product Name");
+    expect(html).toContain("Chọn Cột chứa URL");
     expect(html).toContain("Cột 3: Product URL");
 
-    // Presets
-    expect(html).toContain("Mẫu nhanh:");
-    expect(html).toContain("Tiêu đề");
-    expect(html).toContain("Giá");
-    expect(html).toContain("Mô tả");
+    // Quick presets MUST NOT exist
+    expect(html).not.toContain("Mẫu nhanh:");
+    expect(html).not.toContain("Mẫu nhanh");
+    expect(html).not.toContain("itemprop='headline'");
 
-    // Target Column
-    expect(html).toContain("2. Cột Đích để điền dữ liệu");
-    expect(html).toContain("+ Tạo cột mới ở cuối bảng");
-    expect(html).toContain("Ghi vào cột đã có");
-    expect(html).toContain('value="Scraped_Title"');
-
-    // Selectors list
-    expect(html).toContain("h1.title");
+    // Multi-field cards render
+    expect(html).toContain("Tiêu đề sản phẩm");
+    expect(html).toContain("h1.product-title");
+    expect(html).toContain("Giá bán");
     expect(html).toContain(".price");
+
+    // Add field button
+    expect(html).toContain("+ Thêm trường cần lấy");
 
     // Row range
     expect(html).toContain("Phạm vi dòng cần cào:");
     expect(html).toContain("Toàn bộ file (99 dòng)");
-    expect(html).toContain("Chọn khoảng dòng");
 
     // Test button
     expect(html).toContain("Test thử selector trên 1 URL mẫu");
   });
 
-  it("renders existing column mode dropdown when targetConfig is mode existing", () => {
-    const targetConfig: TargetColumnConfig = { mode: "existing", colIndex: 2 };
+  it("renders informative Text Note callout when mode is new", () => {
+    const singleField: ExtractionFieldConfig[] = [
+      {
+        id: "field_1",
+        name: "Mô tả sản phẩm",
+        selectors: ["article p"],
+        targetColumn: { mode: "new", colName: "Mo_Ta_Chi_Tiet" },
+      },
+    ];
+
+    const html = renderToStaticMarkup(
+      <SelectorConfig
+        columns={sampleColumns}
+        totalRows={50}
+        urlColIndex={3}
+        onUrlColChange={() => {}}
+        fields={singleField}
+        onFieldsChange={() => {}}
+        rowRange={{ startRow: 2, endRow: 50 }}
+        onRowRangeChange={() => {}}
+        onTestRequested={() => {}}
+      />
+    );
+
+    expect(html).toContain("📌 Ghi chú:");
+    expect(html).toContain("Hệ thống sẽ tự động tạo một cột mới có tiêu đề là");
+    expect(html).toContain("Mo_Ta_Chi_Tiet");
+    expect(html).toContain("ở cuối bảng tính Excel để điền nội dung bóc tách được của trường này.");
+    expect(html).not.toContain("⚠️ Vui lòng nhập tên tiêu đề cho cột mới");
+  });
+
+  it("renders warning note when new column colName is empty", () => {
+    const emptyNameField: ExtractionFieldConfig[] = [
+      {
+        id: "field_1",
+        name: "Thông tin",
+        selectors: [".info"],
+        targetColumn: { mode: "new", colName: "" },
+      },
+    ];
+
+    const html = renderToStaticMarkup(
+      <SelectorConfig
+        columns={sampleColumns}
+        totalRows={50}
+        urlColIndex={3}
+        onUrlColChange={() => {}}
+        fields={emptyNameField}
+        onFieldsChange={() => {}}
+        rowRange={{ startRow: 2, endRow: 50 }}
+        onRowRangeChange={() => {}}
+        onTestRequested={() => {}}
+      />
+    );
+
+    expect(html).toContain("⚠️ Vui lòng nhập tên tiêu đề cho cột mới trước khi tiến hành cào.");
+    expect(html).toContain("(chưa đặt tên)");
+  });
+
+  it("renders existing column mode dropdown when field targetColumn mode is existing", () => {
+    const existingField: ExtractionFieldConfig[] = [
+      {
+        id: "f_existing",
+        name: "Cập nhật tên",
+        selectors: [".name"],
+        targetColumn: { mode: "existing", colIndex: 2 },
+      },
+    ];
 
     const html = renderToStaticMarkup(
       <SelectorConfig
@@ -102,10 +175,8 @@ describe("SelectorConfig Component", () => {
         totalRows={50}
         urlColIndex={null}
         onUrlColChange={() => {}}
-        selectors={[]}
-        onSelectorsChange={() => {}}
-        targetConfig={targetConfig}
-        onTargetConfigChange={() => {}}
+        fields={existingField}
+        onFieldsChange={() => {}}
         rowRange={{ startRow: 2, endRow: 50 }}
         onRowRangeChange={() => {}}
         onTestRequested={() => {}}
@@ -113,19 +184,85 @@ describe("SelectorConfig Component", () => {
     );
 
     expect(html).toContain("Ghi đè Cột 2: Product Name");
-    expect(html).toContain("Chưa có selector nào. Vui lòng thêm ít nhất 1 selector.");
+    expect(html).not.toContain("📌 Ghi chú:");
   });
 
-  it("validates preset contents against task requirements", () => {
-    // Exact presets required in task brief
-    const expectedPresets = {
-      title: ["h1.product-title", "h1.entry-title", "h1", ".title", "[itemprop='headline']"],
-      price: [".price", ".product-price", "[data-price]", "span.price"],
-      desc: ["article p", ".description", ".post-content p", "main p"],
+  it("renders Neon DB config manager toolbar with load dropdown and save button", () => {
+    const html = renderToStaticMarkup(
+      <SelectorConfig
+        columns={sampleColumns}
+        totalRows={50}
+        urlColIndex={3}
+        onUrlColChange={() => {}}
+        fields={sampleFields}
+        onFieldsChange={() => {}}
+        rowRange={{ startRow: 2, endRow: 50 }}
+        onRowRangeChange={() => {}}
+        onTestRequested={() => {}}
+      />
+    );
+
+    expect(html).toContain("-- Chọn cấu hình đã lưu --");
+    expect(html).toContain("Lưu cấu hình");
+  });
+
+  it("creates valid default field structure for appending new fields", () => {
+    const newField = createDefaultField(3);
+    expect(newField.id).toBeDefined();
+    expect(newField.name).toBe("Trường 3");
+    expect(newField.selectors).toEqual([]);
+    expect(newField.targetColumn.mode).toBe("new");
+    if (newField.targetColumn.mode === "new") {
+      expect(newField.targetColumn.colName).toBe("Truong_3");
+    }
+  });
+
+  it("renders multiple field cards dynamically as fields are added", () => {
+    const field1: ExtractionFieldConfig = {
+      id: "f1",
+      name: "Tên SP",
+      selectors: ["h1"],
+      targetColumn: { mode: "new", colName: "Col1" },
     };
 
-    expect(expectedPresets.title).toHaveLength(5);
-    expect(expectedPresets.price).toHaveLength(4);
-    expect(expectedPresets.desc).toHaveLength(4);
+    const html1 = renderToStaticMarkup(
+      <SelectorConfig
+        columns={sampleColumns}
+        totalRows={50}
+        urlColIndex={3}
+        onUrlColChange={() => {}}
+        fields={[field1]}
+        onFieldsChange={() => {}}
+        rowRange={{ startRow: 2, endRow: 50 }}
+        onRowRangeChange={() => {}}
+        onTestRequested={() => {}}
+      />
+    );
+    expect(html1).toContain("Tên SP");
+    expect(html1).not.toContain("Giá SP");
+
+    const field2: ExtractionFieldConfig = {
+      id: "f2",
+      name: "Giá SP",
+      selectors: [".price"],
+      targetColumn: { mode: "new", colName: "Col2" },
+    };
+
+    const html2 = renderToStaticMarkup(
+      <SelectorConfig
+        columns={sampleColumns}
+        totalRows={50}
+        urlColIndex={3}
+        onUrlColChange={() => {}}
+        fields={[field1, field2]}
+        onFieldsChange={() => {}}
+        rowRange={{ startRow: 2, endRow: 50 }}
+        onRowRangeChange={() => {}}
+        onTestRequested={() => {}}
+      />
+    );
+    expect(html2).toContain("Tên SP");
+    expect(html2).toContain("Giá SP");
   });
 });
+
