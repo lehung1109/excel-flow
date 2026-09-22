@@ -37,6 +37,72 @@ function extractCellUrlValue(cell: ExcelJS.Cell): unknown {
   return cell.text || null;
 }
 
+function isCellNonEmpty(cell: ExcelJS.Cell): boolean {
+  const val = cell.value;
+  if (val === null || val === undefined) {
+    return typeof cell.text === "string" && cell.text.trim().length > 0;
+  }
+  if (typeof val === "string") {
+    return val.trim().length > 0;
+  }
+  if (typeof val === "number" || typeof val === "boolean") {
+    return true;
+  }
+  if (typeof val === "object") {
+    if ("text" in val && typeof (val as { text?: unknown }).text === "string") {
+      return (val as { text: string }).text.trim().length > 0;
+    }
+    if (
+      "result" in val &&
+      (val as { result?: unknown }).result !== undefined &&
+      (val as { result?: unknown }).result !== null
+    ) {
+      return String((val as { result: unknown }).result).trim().length > 0;
+    }
+    if ("richText" in val && Array.isArray((val as { richText?: unknown[] }).richText)) {
+      const full = (val as { richText: Array<{ text?: string }> }).richText
+        .map((t) => t.text ?? "")
+        .join("")
+        .trim();
+      return full.length > 0;
+    }
+    return String(val).trim().length > 0;
+  }
+  return typeof cell.text === "string" && cell.text.trim().length > 0;
+}
+
+function getCellStringValue(cell: ExcelJS.Cell): string {
+  const val = cell.value;
+  if (val === null || val === undefined) {
+    return cell.text || "";
+  }
+  if (typeof val === "string") {
+    return val;
+  }
+  if (typeof val === "number" || typeof val === "boolean") {
+    return String(val);
+  }
+  if (typeof val === "object") {
+    if ("text" in val && typeof (val as { text?: unknown }).text === "string") {
+      return (val as { text: string }).text;
+    }
+    if (
+      "result" in val &&
+      (val as { result?: unknown }).result !== undefined &&
+      (val as { result?: unknown }).result !== null
+    ) {
+      return String((val as { result: unknown }).result);
+    }
+    if ("richText" in val && Array.isArray((val as { richText?: unknown[] }).richText)) {
+      return (val as { richText: Array<{ text?: string }> }).richText
+        .map((t) => t.text ?? "")
+        .join("");
+    }
+    return String(val);
+  }
+  return cell.text || "";
+}
+
 export async function POST(req: NextRequest) {
   let formData: FormData;
   try {
@@ -284,6 +350,9 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  const rawSkipExisting = formData.get("skipExistingData");
+  const skipExistingData = rawSkipExisting !== "false";
+
   // 5. Inspect Excel workbook
   let originalBuffer: Buffer;
   try {
@@ -415,10 +484,59 @@ export async function POST(req: NextRequest) {
                 return;
               }
 
+              // Check if target fields already have data
+              const row = worksheet.getRow(task.rowIndex);
+              const existingFieldValues: Record<string, string> = {};
+              const fieldsToScrape: ExtractionFieldConfig[] = [];
+
+              for (const f of fields) {
+                if (
+                  skipExistingData &&
+                  f.targetColumn.mode === "existing" &&
+                  isCellNonEmpty(row.getCell(f.targetColumn.colIndex))
+                ) {
+                  existingFieldValues[f.id] = getCellStringValue(
+                    row.getCell(f.targetColumn.colIndex)
+                  );
+                } else {
+                  fieldsToScrape.push(f);
+                }
+              }
+
+              if (fieldsToScrape.length === 0) {
+                skippedCount++;
+                processedCount++;
+                const progressPercent =
+                  totalRows > 0 ? Math.round((processedCount / totalRows) * 100) : 100;
+                const etaSeconds = calculateETA(startTime, processedCount, totalRows);
+
+                const fieldResults: Record<string, FieldCrawlResult> = {};
+                for (const f of fields) {
+                  fieldResults[f.id] = {
+                    text: existingFieldValues[f.id] || "",
+                    matchedSelector: "(đã có dữ liệu)",
+                  };
+                }
+
+                sendEvent("row_progress", {
+                  rowIndex: task.rowIndex,
+                  url: validUrl,
+                  status: "skipped",
+                  fieldResults,
+                  text: Object.values(fieldResults).find((r) => r.text)?.text,
+                  error: "Cột đích đã có dữ liệu (bỏ qua)",
+                  progressPercent,
+                  processedCount,
+                  totalCount: totalRows,
+                  etaSeconds,
+                });
+                return;
+              }
+
               try {
                 const scrapeResult = await scrapeMultiField(
                   validUrl,
-                  fields.map((f) => ({ id: f.id, selectors: f.selectors }))
+                  fieldsToScrape.map((f) => ({ id: f.id, selectors: f.selectors }))
                 );
                 processedCount++;
                 const progressPercent =
@@ -430,19 +548,26 @@ export async function POST(req: NextRequest) {
                 let hasMatch = false;
 
                 for (const f of fields) {
-                  const match = scrapeResult[f.id];
-                  if (match && match.text) {
-                    hasMatch = true;
+                  if (existingFieldValues[f.id] !== undefined) {
                     fieldResults[f.id] = {
-                      text: match.text,
-                      matchedSelector: match.matchedSelector,
+                      text: existingFieldValues[f.id],
+                      matchedSelector: "(đã có dữ liệu)",
                     };
-                    extractedRowTexts[f.id] = match.text;
                   } else {
-                    fieldResults[f.id] = {
-                      text: "",
-                      error: "Không tìm thấy selector nào khớp",
-                    };
+                    const match = scrapeResult[f.id];
+                    if (match && match.text) {
+                      hasMatch = true;
+                      fieldResults[f.id] = {
+                        text: match.text,
+                        matchedSelector: match.matchedSelector,
+                      };
+                      extractedRowTexts[f.id] = match.text;
+                    } else {
+                      fieldResults[f.id] = {
+                        text: "",
+                        error: "Không tìm thấy selector nào khớp",
+                      };
+                    }
                   }
                 }
 
@@ -486,7 +611,14 @@ export async function POST(req: NextRequest) {
 
                 const fieldResults: Record<string, FieldCrawlResult> = {};
                 for (const f of fields) {
-                  fieldResults[f.id] = { text: "", error: errMsg };
+                  if (existingFieldValues[f.id] !== undefined) {
+                    fieldResults[f.id] = {
+                      text: existingFieldValues[f.id],
+                      matchedSelector: "(đã có dữ liệu)",
+                    };
+                  } else {
+                    fieldResults[f.id] = { text: "", error: errMsg };
+                  }
                 }
 
                 sendEvent("row_progress", {
@@ -571,6 +703,34 @@ export async function POST(req: NextRequest) {
                   etaSeconds,
                 });
                 return;
+              }
+
+              if (
+                skipExistingData &&
+                legacyTargetColumnConfig?.mode === "existing"
+              ) {
+                const row = worksheet.getRow(task.rowIndex);
+                const targetCell = row.getCell(legacyTargetColumnConfig.colIndex);
+                if (isCellNonEmpty(targetCell)) {
+                  skippedCount++;
+                  processedCount++;
+                  const progressPercent =
+                    totalRows > 0 ? Math.round((processedCount / totalRows) * 100) : 100;
+                  const etaSeconds = calculateETA(startTime, processedCount, totalRows);
+                  sendEvent("row_progress", {
+                    rowIndex: task.rowIndex,
+                    url: validUrl,
+                    status: "skipped",
+                    text: getCellStringValue(targetCell),
+                    matchedSelector: "(đã có dữ liệu)",
+                    error: "Cột đích đã có dữ liệu (bỏ qua)",
+                    progressPercent,
+                    processedCount,
+                    totalCount: totalRows,
+                    etaSeconds,
+                  });
+                  return;
+                }
               }
 
               try {

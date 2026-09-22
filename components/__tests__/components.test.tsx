@@ -264,5 +264,47 @@ describe("SelectorConfig Component", () => {
     expect(html2).toContain("Tên SP");
     expect(html2).toContain("Giá SP");
   });
+
+  it("renders skipExistingData checkbox with default checked state and handles toggling", () => {
+    const htmlChecked = renderToStaticMarkup(
+      <SelectorConfig
+        columns={sampleColumns}
+        totalRows={50}
+        urlColIndex={3}
+        onUrlColChange={() => {}}
+        fields={sampleFields}
+        onFieldsChange={() => {}}
+        rowRange={{ startRow: 2, endRow: 50 }}
+        onRowRangeChange={() => {}}
+        onTestRequested={() => {}}
+        skipExistingData={true}
+        onSkipExistingDataChange={() => {}}
+      />
+    );
+
+    expect(htmlChecked).toContain("Bỏ qua các cột/ô đã có dữ liệu");
+    expect(htmlChecked).toContain('type="checkbox"');
+    expect(htmlChecked).toContain("checked");
+
+    const htmlUnchecked = renderToStaticMarkup(
+      <SelectorConfig
+        columns={sampleColumns}
+        totalRows={50}
+        urlColIndex={3}
+        onUrlColChange={() => {}}
+        fields={sampleFields}
+        onFieldsChange={() => {}}
+        rowRange={{ startRow: 2, endRow: 50 }}
+        onRowRangeChange={() => {}}
+        onTestRequested={() => {}}
+        skipExistingData={false}
+        onSkipExistingDataChange={() => {}}
+      />
+    );
+
+    expect(htmlUnchecked).toContain("Bỏ qua các cột/ô đã có dữ liệu");
+    // When unchecked, it does not have the 'checked=""' attribute
+    expect(htmlUnchecked).not.toMatch(/type="checkbox"[^>]*checked/);
+  });
 });
 

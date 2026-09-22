@@ -35,6 +35,8 @@ export interface SelectorConfigProps {
   rowRange: { startRow: number; endRow: number };
   onRowRangeChange: (range: { startRow: number; endRow: number }) => void;
   onTestRequested: () => void;
+  skipExistingData?: boolean;
+  onSkipExistingDataChange?: (skip: boolean) => void;
   initialSaveModalOpen?: boolean;
   initialModalError?: string | null;
 }
@@ -65,9 +67,23 @@ export default function SelectorConfig({
   rowRange,
   onRowRangeChange,
   onTestRequested,
+  skipExistingData,
+  onSkipExistingDataChange,
   initialSaveModalOpen = false,
   initialModalError = null,
 }: SelectorConfigProps) {
+  const [internalSkipExisting, setInternalSkipExisting] = useState(true);
+  const currentSkipExisting =
+    skipExistingData !== undefined ? skipExistingData : internalSkipExisting;
+
+  function handleToggleSkipExisting(val: boolean) {
+    if (onSkipExistingDataChange) {
+      onSkipExistingDataChange(val);
+    } else {
+      setInternalSkipExisting(val);
+    }
+  }
+
   // Internal fallback state if uncontrolled
   const [internalFields, setInternalFields] = useState<ExtractionFieldConfig[]>(() => {
     if (fields && fields.length > 0) return fields;
@@ -724,6 +740,24 @@ export default function SelectorConfig({
             </span>
           </div>
         )}
+
+        {/* Skip existing data option */}
+        <div className="mt-3 pt-3 border-t border-slate-200/80 flex flex-wrap items-center justify-between gap-2">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={currentSkipExisting}
+              onChange={(e) => handleToggleSkipExisting(e.target.checked)}
+              className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+            />
+            <span className="font-medium text-slate-700">
+              Bỏ qua các cột/ô đã có dữ liệu
+            </span>
+          </label>
+          <span className="text-[11px] text-slate-500">
+            (Mặc định: không cào lại và không ghi đè nếu cột đích đã có dữ liệu)
+          </span>
+        </div>
       </div>
 
       {/* Test 1 URL button */}

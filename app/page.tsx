@@ -59,6 +59,7 @@ export default function Home() {
     startRow: 2,
     endRow: 2,
   });
+  const [skipExistingData, setSkipExistingData] = useState<boolean>(true);
 
   // Crawl execution & streaming state
   const [isRunning, setIsRunning] = useState<boolean>(false);
@@ -209,6 +210,7 @@ export default function Home() {
       formData.append("fields", JSON.stringify(fields));
       formData.append("sheetName", selectedSheet);
       formData.append("rowRange", JSON.stringify(rowRange));
+      formData.append("skipExistingData", String(skipExistingData));
 
       const response = await fetch("/api/crawl", {
         method: "POST",
@@ -445,6 +447,8 @@ export default function Home() {
             rowRange={rowRange}
             onRowRangeChange={handleRowRangeChange}
             onTestRequested={() => setIsTestModalOpen(true)}
+            skipExistingData={skipExistingData}
+            onSkipExistingDataChange={setSkipExistingData}
           />
         </section>
 

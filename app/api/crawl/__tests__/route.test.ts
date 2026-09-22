@@ -532,6 +532,53 @@ describe("POST /api/crawl", () => {
         scrapeSpy.mockRestore();
       }
     });
+
+    it("handles skipExistingData in legacy single-field mode", async () => {
+      const file = await createTestExcelFile("Sheet1", [
+        ["ID", "URL", "ExistingTarget"],
+        [1, "https://example.com/already-done", "Already filled text"],
+        [2, "https://example.com/needs-crawl", ""],
+      ]);
+
+      const scrapedUrls: string[] = [];
+      const scrapeSpy = spyOn(scraper, "scrapeHybrid").mockImplementation(async (url) => {
+        scrapedUrls.push(url);
+        return { selector: "h1", text: "New Content", method: "static" };
+      });
+
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("urlColIndex", "2");
+        formData.append(
+          "targetColumnConfig",
+          JSON.stringify({ mode: "existing", colIndex: 3 })
+        );
+        formData.append("selectors", JSON.stringify(["h1"]));
+        formData.append("skipExistingData", "true");
+
+        const req = new NextRequest("http://localhost:3000/api/crawl", {
+          method: "POST",
+          body: formData,
+        });
+
+        const res = await POST(req);
+        const rawBody = await res.text();
+        const events = parseSseEvents(rawBody);
+
+        const rowEvents = events.filter((e) => e.event === "row_progress");
+        const row2 = rowEvents.find((e) => e.data.rowIndex === 2);
+        const row3 = rowEvents.find((e) => e.data.rowIndex === 3);
+
+        expect(row2?.data.status).toBe("skipped");
+        expect(row2?.data.error).toContain("đã có dữ liệu");
+        expect(row3?.data.status).toBe("success");
+
+        expect(scrapedUrls).toEqual(["https://example.com/needs-crawl"]);
+      } finally {
+        scrapeSpy.mockRestore();
+      }
+    });
   });
 
   describe("Multi-Field Crawling", () => {
@@ -744,6 +791,155 @@ describe("POST /api/crawl", () => {
         expect(resultWs?.getRow(2).getCell(4).value).toBe("Title One");
         expect(resultWs?.getRow(2).getCell(5).value).toBe("$10.00");
         expect(resultWs?.getRow(3).getCell(4).value).toBe("Title Two");
+      } finally {
+        scrapeSpy.mockRestore();
+      }
+    });
+
+    it("skips scraping when target columns already have data and skipExistingData is true", async () => {
+      // Create Excel file where:
+      // Row 2 has existing data for both target columns (Col 2 and Col 4)
+      // Row 3 has existing data for Col 2, but Col 4 is empty
+      const file = await createTestExcelFile("Products", [
+        ["ID", "Name", "URL", "Price"],
+        [1, "Existing Name 1", "https://example.com/prod-1", "$99.00"],
+        [2, "Existing Name 2", "https://example.com/prod-2", ""],
+      ]);
+
+      const fields: ExtractionFieldConfig[] = [
+        {
+          id: "f_name",
+          name: "Name",
+          selectors: ["h1.title"],
+          targetColumn: { mode: "existing", colIndex: 2 },
+        },
+        {
+          id: "f_price",
+          name: "Price",
+          selectors: [".price"],
+          targetColumn: { mode: "existing", colIndex: 4 },
+        },
+      ];
+
+      const scrapedUrls: string[] = [];
+      const scrapeSpy = spyOn(scraper, "scrapeMultiField").mockImplementation(async (url, requestedFields) => {
+        scrapedUrls.push(url);
+        // Ensure for prod-2 only f_price was requested because f_name already has data
+        expect(requestedFields.map((f) => f.id)).toEqual(["f_price"]);
+        return {
+          f_price: { text: "$19.99", matchedSelector: ".price" },
+        };
+      });
+
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("sheetName", "Products");
+        formData.append("urlColIndex", "3");
+        formData.append("fields", JSON.stringify(fields));
+        formData.append("skipExistingData", "true");
+
+        const req = new NextRequest("http://localhost:3000/api/crawl", {
+          method: "POST",
+          body: formData,
+        });
+
+        const res = await POST(req);
+        expect(res.status).toBe(200);
+
+        const rawBody = await res.text();
+        const events = parseSseEvents(rawBody);
+
+        const rowEvents = events.filter((e) => e.event === "row_progress");
+        expect(rowEvents.length).toBe(2);
+
+        // Row 2 should be skipped because all target columns already have data
+        const row2 = rowEvents.find((e) => e.data.rowIndex === 2);
+        expect(row2?.data.status).toBe("skipped");
+        expect(row2?.data.error).toContain("đã có dữ liệu");
+
+        // Row 3 should be success (scraped missing field f_price)
+        const row3 = rowEvents.find((e) => e.data.rowIndex === 3);
+        expect(row3?.data.status).toBe("success");
+        expect(row3?.data.fieldResults.f_price.text).toBe("$19.99");
+
+        // prod-1 was never scraped because row was skipped
+        expect(scrapedUrls).not.toContain("https://example.com/prod-1");
+        expect(scrapedUrls).toContain("https://example.com/prod-2");
+
+        // Complete summary should count 1 skipped, 1 succeeded
+        const completeEvent = events.find((e) => e.event === "complete");
+        expect(completeEvent?.data.summary).toMatchObject({
+          total: 2,
+          succeeded: 1,
+          failed: 0,
+          skipped: 1,
+        });
+
+        // Enriched file should preserve existing data
+        const stored = getTempFile(completeEvent?.data.downloadId);
+        expect(stored).not.toBeNull();
+        const resultWb = new ExcelJS.Workbook();
+        await resultWb.xlsx.load(stored!.buffer as unknown as ExcelJS.Buffer);
+        const resultWs = resultWb.getWorksheet("Products");
+        expect(resultWs?.getRow(2).getCell(2).value).toBe("Existing Name 1");
+        expect(resultWs?.getRow(2).getCell(4).value).toBe("$99.00");
+        expect(resultWs?.getRow(3).getCell(2).value).toBe("Existing Name 2");
+        expect(resultWs?.getRow(3).getCell(4).value).toBe("$19.99");
+      } finally {
+        scrapeSpy.mockRestore();
+      }
+    });
+
+    it("overwrites existing data when skipExistingData is false", async () => {
+      const file = await createTestExcelFile("Products", [
+        ["ID", "Name", "URL"],
+        [1, "Old Name", "https://example.com/prod-1"],
+      ]);
+
+      const fields: ExtractionFieldConfig[] = [
+        {
+          id: "f_name",
+          name: "Name",
+          selectors: ["h1.title"],
+          targetColumn: { mode: "existing", colIndex: 2 },
+        },
+      ];
+
+      const scrapeSpy = spyOn(scraper, "scrapeMultiField").mockImplementation(async () => {
+        return {
+          f_name: { text: "New Overwritten Name", matchedSelector: "h1.title" },
+        };
+      });
+
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("sheetName", "Products");
+        formData.append("urlColIndex", "3");
+        formData.append("fields", JSON.stringify(fields));
+        formData.append("skipExistingData", "false");
+
+        const req = new NextRequest("http://localhost:3000/api/crawl", {
+          method: "POST",
+          body: formData,
+        });
+
+        const res = await POST(req);
+        expect(res.status).toBe(200);
+
+        const rawBody = await res.text();
+        const events = parseSseEvents(rawBody);
+
+        const row2 = events.find((e) => e.event === "row_progress" && e.data.rowIndex === 2);
+        expect(row2?.data.status).toBe("success");
+
+        const completeEvent = events.find((e) => e.event === "complete");
+        const stored = getTempFile(completeEvent?.data.downloadId);
+        const resultWb = new ExcelJS.Workbook();
+        await resultWb.xlsx.load(stored!.buffer as unknown as ExcelJS.Buffer);
+        const resultWs = resultWb.getWorksheet("Products");
+        expect(resultWs?.getRow(2).getCell(2).value).toBe("New Overwritten Name");
       } finally {
         scrapeSpy.mockRestore();
       }
