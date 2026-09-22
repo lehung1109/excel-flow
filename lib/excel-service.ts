@@ -1,5 +1,10 @@
 import ExcelJS from "exceljs";
-import type { ExcelColumnInfo, ExcelSheetSummary, TargetColumnConfig } from "../types/crawler";
+import type {
+  ExcelColumnInfo,
+  ExcelSheetSummary,
+  ExtractionFieldConfig,
+  TargetColumnConfig,
+} from "../types/crawler";
 
 interface RichTextItem {
   text?: string;
@@ -180,3 +185,63 @@ export async function enrichExcelBuffer(options: EnrichExcelOptions): Promise<Bu
   const outputBuffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(outputBuffer);
 }
+
+export interface EnrichExcelMultiFieldOptions {
+  buffer: Buffer;
+  sheetName: string;
+  fields: ExtractionFieldConfig[];
+  rowResults: Map<number, Record<string, string>>; // rowIndex -> { [fieldId]: text }
+}
+
+export async function enrichExcelBufferMultiField(
+  options: EnrichExcelMultiFieldOptions
+): Promise<Buffer> {
+  const { buffer, sheetName, fields, rowResults } = options;
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer as unknown as ExcelJS.Buffer);
+
+  const worksheet = workbook.getWorksheet(sheetName) || workbook.worksheets[0];
+  if (!worksheet) {
+    throw new Error(`Worksheet '${sheetName}' not found in Excel workbook.`);
+  }
+
+  const headerRow = worksheet.getRow(1);
+  let maxCol = 0;
+  headerRow.eachCell({ includeEmpty: false }, (_cell, colNumber) => {
+    if (colNumber > maxCol) {
+      maxCol = colNumber;
+    }
+  });
+
+  // Map each field to its assigned column index in the sheet
+  const fieldColumnMap = new Map<string, number>();
+
+  for (const field of fields) {
+    if (field.targetColumn.mode === "existing") {
+      fieldColumnMap.set(field.id, field.targetColumn.colIndex);
+    } else {
+      maxCol += 1;
+      const targetColIndex = maxCol;
+      fieldColumnMap.set(field.id, targetColIndex);
+
+      const headerCell = headerRow.getCell(targetColIndex);
+      headerCell.value = field.targetColumn.colName;
+      headerCell.font = { bold: true };
+    }
+  }
+
+  // Populate row values
+  for (const [rowIndex, fieldValues] of rowResults.entries()) {
+    const row = worksheet.getRow(rowIndex);
+    for (const [fieldId, text] of Object.entries(fieldValues)) {
+      const colIndex = fieldColumnMap.get(fieldId);
+      if (colIndex && text !== undefined && text !== null) {
+        row.getCell(colIndex).value = text;
+      }
+    }
+  }
+
+  const outputBuffer = await workbook.xlsx.writeBuffer();
+  return Buffer.from(outputBuffer);
+}
+

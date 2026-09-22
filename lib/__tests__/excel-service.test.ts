@@ -1,6 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import ExcelJS from "exceljs";
-import { enrichExcelBuffer, inspectExcelBuffer } from "../excel-service";
+import {
+  enrichExcelBuffer,
+  enrichExcelBufferMultiField,
+  inspectExcelBuffer,
+} from "../excel-service";
+import type { ExtractionFieldConfig } from "../../types/crawler";
 
 async function createSampleExcel(): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
@@ -171,6 +176,66 @@ describe("excel-service", () => {
       const cellD2 = sheet1!.getCell("D2");
       const formulaVal = cellD2.value as { formula?: string };
       expect(formulaVal?.formula).toBe("SUM(10, 20)");
+    });
+  });
+
+  describe("enrichExcelBufferMultiField", () => {
+    it("enriches Excel with multiple existing and new columns", async () => {
+      const workbook = new ExcelJS.Workbook();
+      const ws = workbook.addWorksheet("Products");
+      ws.addRow(["ID", "URL", "OldCol"]);
+      ws.addRow([1, "https://example.com/1", "OldValue1"]);
+      ws.addRow([2, "https://example.com/2", "OldValue2"]);
+      const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+
+      const fields: ExtractionFieldConfig[] = [
+        {
+          id: "f1",
+          name: "Title",
+          selectors: ["h1"],
+          targetColumn: { mode: "new", colName: "Extracted_Title" },
+        },
+        {
+          id: "f2",
+          name: "Price",
+          selectors: [".price"],
+          targetColumn: { mode: "new", colName: "Extracted_Price" },
+        },
+        {
+          id: "f3",
+          name: "OldColUpdate",
+          selectors: [".note"],
+          targetColumn: { mode: "existing", colIndex: 3 },
+        },
+      ];
+
+      const rowResults = new Map<number, Record<string, string>>([
+        [2, { f1: "Item 1 Title", f2: "100k", f3: "New Note 1" }],
+        [3, { f1: "Item 2 Title", f2: "200k", f3: "New Note 2" }],
+      ]);
+
+      const outputBuffer = await enrichExcelBufferMultiField({
+        buffer,
+        sheetName: "Products",
+        fields,
+        rowResults,
+      });
+
+      const resWb = new ExcelJS.Workbook();
+      await resWb.xlsx.load(outputBuffer as unknown as ExcelJS.Buffer);
+      const resWs = resWb.getWorksheet("Products")!;
+
+      expect(resWs.getRow(1).getCell(3).value).toBe("OldCol");
+      expect(resWs.getRow(1).getCell(4).value).toBe("Extracted_Title");
+      expect(resWs.getRow(1).getCell(5).value).toBe("Extracted_Price");
+
+      expect(resWs.getRow(2).getCell(3).value).toBe("New Note 1");
+      expect(resWs.getRow(2).getCell(4).value).toBe("Item 1 Title");
+      expect(resWs.getRow(2).getCell(5).value).toBe("100k");
+
+      expect(resWs.getRow(3).getCell(3).value).toBe("New Note 2");
+      expect(resWs.getRow(3).getCell(4).value).toBe("Item 2 Title");
+      expect(resWs.getRow(3).getCell(5).value).toBe("200k");
     });
   });
 });
