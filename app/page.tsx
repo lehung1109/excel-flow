@@ -60,6 +60,7 @@ export default function Home() {
     endRow: 2,
   });
   const [skipExistingData, setSkipExistingData] = useState<boolean>(true);
+  const [preClickSelector, setPreClickSelector] = useState<string>("");
 
   // Crawl execution & streaming state
   const [isRunning, setIsRunning] = useState<boolean>(false);
@@ -211,6 +212,9 @@ export default function Home() {
       formData.append("sheetName", selectedSheet);
       formData.append("rowRange", JSON.stringify(rowRange));
       formData.append("skipExistingData", String(skipExistingData));
+      if (preClickSelector && preClickSelector.trim()) {
+        formData.append("preClickSelector", preClickSelector.trim());
+      }
 
       const response = await fetch("/api/crawl", {
         method: "POST",
@@ -449,6 +453,8 @@ export default function Home() {
             onTestRequested={() => setIsTestModalOpen(true)}
             skipExistingData={skipExistingData}
             onSkipExistingDataChange={setSkipExistingData}
+            preClickSelector={preClickSelector}
+            onPreClickSelectorChange={setPreClickSelector}
           />
         </section>
 
@@ -478,6 +484,7 @@ export default function Home() {
         onClose={() => setIsTestModalOpen(false)}
         sampleUrl={sampleUrl}
         fields={fields}
+        preClickSelector={preClickSelector}
       />
     </div>
   );

@@ -306,5 +306,26 @@ describe("SelectorConfig Component", () => {
     // When unchecked, it does not have the 'checked=""' attribute
     expect(htmlUnchecked).not.toMatch(/type="checkbox"[^>]*checked/);
   });
+
+  it("renders preClickSelector interaction section with toggle and input", () => {
+    const htmlWithPreClick = renderToStaticMarkup(
+      <SelectorConfig
+        columns={sampleColumns}
+        totalRows={50}
+        urlColIndex={3}
+        onUrlColChange={() => {}}
+        fields={sampleFields}
+        onFieldsChange={() => {}}
+        rowRange={{ startRow: 2, endRow: 50 }}
+        onRowRangeChange={() => {}}
+        onTestRequested={() => {}}
+        preClickSelector={'button[type="submit"].btn.btn-primary'}
+        onPreClickSelectorChange={() => {}}
+      />
+    );
+
+    expect(htmlWithPreClick).toContain("Tương tác trước khi cào dữ liệu");
+    expect(htmlWithPreClick).toContain("btn.btn-primary");
+  });
 });
 

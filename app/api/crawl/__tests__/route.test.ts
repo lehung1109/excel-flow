@@ -944,5 +944,58 @@ describe("POST /api/crawl", () => {
         scrapeSpy.mockRestore();
       }
     });
+
+    it("passes preClickSelector to scrapeMultiField when preClickSelector is in formData", async () => {
+      const file = await createTestExcelFile("Products", [
+        ["ID", "Name", "URL"],
+        [1, "", "https://example.com/item-1"],
+      ]);
+
+      const fields: ExtractionFieldConfig[] = [
+        {
+          id: "f_title",
+          name: "Title",
+          selectors: [".revealed-data"],
+          targetColumn: { mode: "new", colName: "Extracted_Title" },
+        },
+      ];
+
+      const scrapeSpy = spyOn(scraper, "scrapeMultiField").mockImplementation(async () => {
+        return {
+          f_title: { text: "Revealed Title", matchedSelector: ".revealed-data" },
+        };
+      });
+
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("sheetName", "Products");
+        formData.append("urlColIndex", "3");
+        formData.append("fields", JSON.stringify(fields));
+        formData.append("preClickSelector", 'button[type="submit"].btn.btn-primary');
+
+        const req = new NextRequest("http://localhost:3000/api/crawl", {
+          method: "POST",
+          body: formData,
+        });
+
+        const res = await POST(req);
+        expect(res.status).toBe(200);
+
+        const rawBody = await res.text();
+        const events = parseSseEvents(rawBody);
+
+        const row2 = events.find((e) => e.event === "row_progress" && e.data.rowIndex === 2);
+        expect(row2?.data.status).toBe("success");
+
+        expect(scrapeSpy).toHaveBeenCalledWith(
+          "https://example.com/item-1",
+          [{ id: "f_title", selectors: [".revealed-data"] }],
+          { preClickSelector: 'button[type="submit"].btn.btn-primary' }
+        );
+      } finally {
+        scrapeSpy.mockRestore();
+      }
+    });
   });
 });

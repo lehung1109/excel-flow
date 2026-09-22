@@ -164,6 +164,21 @@ describe("TestSelectorModal Component", () => {
     expect(html).toContain("Giá bán");
     expect(html).toContain("Không tìm thấy nội dung nào khớp");
   });
+
+  it("renders preClickSelector badge when preClickSelector prop is provided", () => {
+    const html = renderToStaticMarkup(
+      <TestSelectorModal
+        isOpen={true}
+        onClose={() => {}}
+        sampleUrl="https://example.com/product/123"
+        selectors={["h1.product-title"]}
+        preClickSelector={'button[type="submit"].btn.btn-primary'}
+      />
+    );
+
+    expect(html).toContain("Click trước khi cào");
+    expect(html).toContain("btn.btn-primary");
+  });
 });
 
 describe("LiveProgressDashboard Component", () => {

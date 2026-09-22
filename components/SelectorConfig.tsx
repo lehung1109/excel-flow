@@ -37,6 +37,8 @@ export interface SelectorConfigProps {
   onTestRequested: () => void;
   skipExistingData?: boolean;
   onSkipExistingDataChange?: (skip: boolean) => void;
+  preClickSelector?: string;
+  onPreClickSelectorChange?: (selector: string) => void;
   initialSaveModalOpen?: boolean;
   initialModalError?: string | null;
 }
@@ -69,6 +71,8 @@ export default function SelectorConfig({
   onTestRequested,
   skipExistingData,
   onSkipExistingDataChange,
+  preClickSelector,
+  onPreClickSelectorChange,
   initialSaveModalOpen = false,
   initialModalError = null,
 }: SelectorConfigProps) {
@@ -81,6 +85,36 @@ export default function SelectorConfig({
       onSkipExistingDataChange(val);
     } else {
       setInternalSkipExisting(val);
+    }
+  }
+
+  const [internalPreClick, setInternalPreClick] = useState(preClickSelector || "");
+  const [internalInteractionEnabled, setInternalInteractionEnabled] = useState(
+    Boolean(preClickSelector && preClickSelector.trim().length > 0)
+  );
+
+  const currentPreClick =
+    preClickSelector !== undefined ? preClickSelector : internalPreClick;
+  const interactionEnabled =
+    internalInteractionEnabled || Boolean(currentPreClick && currentPreClick.trim().length > 0);
+
+  function handleToggleInteraction(checked: boolean) {
+    setInternalInteractionEnabled(checked);
+    if (!checked) {
+      if (onPreClickSelectorChange) onPreClickSelectorChange("");
+      else setInternalPreClick("");
+    } else {
+      const val = currentPreClick || 'button[type="submit"].btn.btn-primary';
+      if (onPreClickSelectorChange) onPreClickSelectorChange(val);
+      else setInternalPreClick(val);
+    }
+  }
+
+  function handlePreClickChange(val: string) {
+    if (onPreClickSelectorChange) {
+      onPreClickSelectorChange(val);
+    } else {
+      setInternalPreClick(val);
     }
   }
 
@@ -757,6 +791,39 @@ export default function SelectorConfig({
           <span className="text-[11px] text-slate-500">
             (Mặc định: không cào lại và không ghi đè nếu cột đích đã có dữ liệu)
           </span>
+        </div>
+
+        {/* Pre-interaction click button option */}
+        <div className="mt-3 pt-3 border-t border-slate-200/80 space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={interactionEnabled}
+                onChange={(e) => handleToggleInteraction(e.target.checked)}
+                className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+              />
+              <span className="font-medium text-slate-700">
+                Tương tác trước khi cào dữ liệu
+              </span>
+            </label>
+            <span className="text-[11px] text-slate-500">
+              (Bấm nút submit/xem thêm trước khi lấy nội dung, hỗ trợ trang gọi AJAX hoặc reload)
+            </span>
+          </div>
+
+          {interactionEnabled && (
+            <div className="flex items-center gap-2 pl-6">
+              <span className="text-xs text-slate-600 whitespace-nowrap">Selector của nút bấm:</span>
+              <input
+                type="text"
+                value={currentPreClick}
+                onChange={(e) => handlePreClickChange(e.target.value)}
+                placeholder='button[type="submit"].btn.btn-primary'
+                className="flex-1 px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-mono text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+          )}
         </div>
       </div>
 

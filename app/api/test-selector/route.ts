@@ -22,7 +22,15 @@ export async function POST(req: NextRequest) {
       url?: unknown;
       selectors?: unknown;
       fields?: unknown;
+      preClickSelector?: unknown;
     } | null | undefined;
+
+    const rawPreClick = typedBody?.preClickSelector;
+    const preClickSelector =
+      typeof rawPreClick === "string" && rawPreClick.trim().length > 0
+        ? rawPreClick.trim()
+        : undefined;
+    const scrapeOptions = preClickSelector ? { preClickSelector } : undefined;
 
     // Multi-field mode if fields is provided
     if (typedBody?.fields !== undefined) {
@@ -74,7 +82,9 @@ export async function POST(req: NextRequest) {
         fields.push({ id: fId, selectors: cleaned });
       }
 
-      const multiResults = await scrapeMultiField(validUrl, fields);
+      const multiResults = scrapeOptions
+        ? await scrapeMultiField(validUrl, fields, scrapeOptions)
+        : await scrapeMultiField(validUrl, fields);
       const results: Record<string, FieldCrawlResult> = {};
 
       for (const f of fields) {
@@ -123,7 +133,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const match = await scrapeHybrid(validUrl, selectors);
+    const match = scrapeOptions
+      ? await scrapeHybrid(validUrl, selectors, scrapeOptions)
+      : await scrapeHybrid(validUrl, selectors);
 
     if (!match) {
       return NextResponse.json(

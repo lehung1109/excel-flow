@@ -55,6 +55,39 @@ describe("scraper", () => {
           );
         }
 
+        if (url.pathname === "/interactive-page") {
+          const isSubmitted = url.searchParams.get("submitted") === "1";
+          if (isSubmitted) {
+            return new Response(
+              `<!DOCTYPE html>
+              <html>
+                <head><meta charset="utf-8"><title>Interactive Page - Result</title></head>
+                <body>
+                  <div class="revealed-data">Dữ liệu mật sau khi bấm nút</div>
+                </body>
+              </html>`,
+              { headers: { "Content-Type": "text/html; charset=utf-8" } }
+            );
+          }
+          return new Response(
+            `<!DOCTYPE html>
+            <html>
+              <head><meta charset="utf-8"><title>Interactive Page - Initial</title></head>
+              <body>
+                <button type="submit" class="btn btn-primary" onclick="handleClick()">Bấm để xem</button>
+                <script>
+                  function handleClick() {
+                    setTimeout(() => {
+                      window.location.href = "/interactive-page?submitted=1";
+                    }, 50);
+                  }
+                </script>
+              </body>
+            </html>`,
+            { headers: { "Content-Type": "text/html; charset=utf-8" } }
+          );
+        }
+
         if (url.pathname === "/not-found") {
           return new Response("Not Found", { status: 404 });
         }
@@ -304,5 +337,35 @@ describe("scraper", () => {
         globalThis.fetch = originalFetch;
       }
     });
+
+    it("scrapes data after clicking button specified in preClickSelector", async () => {
+      const fields = [
+        { id: "revealed", selectors: [".revealed-data"] },
+      ];
+
+      // 1. Without preClickSelector, element is not present on initial page
+      const withoutClick = await scrapeMultiField(`${baseUrl}/interactive-page`, fields);
+      expect(withoutClick.revealed).toBeNull();
+
+      // 2. With preClickSelector, button is clicked, page reloads, and data is extracted
+      const withClick = await scrapeMultiField(`${baseUrl}/interactive-page`, fields, {
+        preClickSelector: 'button[type="submit"].btn.btn-primary',
+      });
+      expect(withClick.revealed).not.toBeNull();
+      expect(withClick.revealed?.text).toBe("Dữ liệu mật sau khi bấm nút");
+      expect(withClick.revealed?.matchedSelector).toBe(".revealed-data");
+    });
+
+    it("scrapeHybrid supports preClickSelector option", async () => {
+      const match = await scrapeHybrid(
+        `${baseUrl}/interactive-page`,
+        [".revealed-data"],
+        { preClickSelector: 'button[type="submit"].btn.btn-primary' }
+      );
+      expect(match).not.toBeNull();
+      expect(match?.text).toBe("Dữ liệu mật sau khi bấm nút");
+      expect(match?.selector).toBe(".revealed-data");
+    });
   });
 });
+

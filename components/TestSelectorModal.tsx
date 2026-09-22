@@ -31,6 +31,7 @@ export interface TestSelectorModalProps {
   fields?: ExtractionFieldConfig[];
   selectors?: string[];
   initialResult?: TestResultState | null;
+  preClickSelector?: string;
 }
 
 export default function TestSelectorModal({
@@ -40,6 +41,7 @@ export default function TestSelectorModal({
   fields,
   selectors,
   initialResult = null,
+  preClickSelector,
 }: TestSelectorModalProps) {
   const [url, setUrl] = useState(sampleUrl || "");
   const [isLoading, setIsLoading] = useState(false);
@@ -83,9 +85,13 @@ export default function TestSelectorModal({
     setGeneralError(null);
 
     try {
-      const payload = isMultiField
+      const payload: Record<string, any> = isMultiField
         ? { url: trimmedUrl, fields: activeFields }
         : { url: trimmedUrl, selectors: activeSelectors };
+
+      if (preClickSelector && preClickSelector.trim()) {
+        payload.preClickSelector = preClickSelector.trim();
+      }
 
       const response = await fetch("/api/test-selector", {
         method: "POST",
@@ -203,6 +209,15 @@ export default function TestSelectorModal({
               Bạn có thể chỉnh sửa URL này để test với trang web cụ thể.
             </p>
           </div>
+
+          {preClickSelector && preClickSelector.trim() && (
+            <div className="p-2.5 bg-amber-50/80 border border-amber-200 rounded-lg text-xs text-amber-900 flex items-center justify-between gap-2">
+              <span className="font-medium text-amber-800">Click trước khi cào:</span>
+              <code className="px-2 py-0.5 bg-white border border-amber-200 rounded text-amber-900 font-mono text-[11px]">
+                {preClickSelector}
+              </code>
+            </div>
+          )}
 
           {/* Active configuration list */}
           {isMultiField ? (

@@ -353,6 +353,13 @@ export async function POST(req: NextRequest) {
   const rawSkipExisting = formData.get("skipExistingData");
   const skipExistingData = rawSkipExisting !== "false";
 
+  const rawPreClick = formData.get("preClickSelector");
+  const preClickSelector =
+    typeof rawPreClick === "string" && rawPreClick.trim().length > 0
+      ? rawPreClick.trim()
+      : undefined;
+  const scrapeOptions = preClickSelector ? { preClickSelector } : undefined;
+
   // 5. Inspect Excel workbook
   let originalBuffer: Buffer;
   try {
@@ -534,10 +541,16 @@ export async function POST(req: NextRequest) {
               }
 
               try {
-                const scrapeResult = await scrapeMultiField(
-                  validUrl,
-                  fieldsToScrape.map((f) => ({ id: f.id, selectors: f.selectors }))
-                );
+                const scrapeResult = scrapeOptions
+                  ? await scrapeMultiField(
+                      validUrl,
+                      fieldsToScrape.map((f) => ({ id: f.id, selectors: f.selectors })),
+                      scrapeOptions
+                    )
+                  : await scrapeMultiField(
+                      validUrl,
+                      fieldsToScrape.map((f) => ({ id: f.id, selectors: f.selectors }))
+                    );
                 processedCount++;
                 const progressPercent =
                   totalRows > 0 ? Math.round((processedCount / totalRows) * 100) : 100;
@@ -734,7 +747,9 @@ export async function POST(req: NextRequest) {
               }
 
               try {
-                const match = await scrapeHybrid(validUrl, legacyCleanedSelectors);
+                const match = scrapeOptions
+                  ? await scrapeHybrid(validUrl, legacyCleanedSelectors, scrapeOptions)
+                  : await scrapeHybrid(validUrl, legacyCleanedSelectors);
                 processedCount++;
                 const progressPercent =
                   totalRows > 0 ? Math.round((processedCount / totalRows) * 100) : 100;

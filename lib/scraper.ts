@@ -1,6 +1,6 @@
 import * as cheerio from "cheerio";
 import type { Browser, BrowserContext, Page } from "playwright";
-import { type SelectorMatch } from "../types/crawler";
+import { type SelectorMatch, type ScrapeOptions } from "../types/crawler";
 import { sanitizeExtractedText } from "./url-utils";
 
 const DEFAULT_USER_AGENT =
@@ -133,10 +133,12 @@ export async function scrapeStatic(
 async function scrapeDynamicViaNodeWorker(
   url: string,
   selectors: string[],
-  timeoutMs: number = 8000
+  options?: ScrapeOptions | number
 ): Promise<SelectorMatch | null> {
+  const timeoutMs = typeof options === "number" ? options : options?.timeoutMs ?? 8000;
+  const preClickSelector = typeof options === "object" ? options?.preClickSelector : undefined;
+
   try {
-    const runner = "n" + "ode";
     const script = `
 const { chromium } = require("playwright");
 async function run() {
@@ -144,7 +146,7 @@ async function run() {
   for await (const chunk of process.stdin) chunks.push(chunk);
   const inputStr = Buffer.concat(chunks).toString("utf8");
   if (!inputStr) { process.stdout.write(JSON.stringify(null)); process.exit(0); }
-  const { url, selectors, timeout = 8000 } = JSON.parse(inputStr);
+  const { url, selectors, timeout = 8000, preClickSelector } = JSON.parse(inputStr);
   const start = Date.now();
   let browser;
   try {
@@ -157,6 +159,19 @@ async function run() {
     });
     const page = await ctx.newPage();
     await page.goto(url, { waitUntil: "domcontentloaded", timeout });
+    if (preClickSelector && typeof preClickSelector === "string" && preClickSelector.trim()) {
+      try {
+        const btn = await page.$(preClickSelector.trim());
+        if (btn) {
+          const navPromise = page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 8000 }).catch(() => null);
+          const selPromises = selectors.map((s) => page.waitForSelector(s, { timeout: 5000 }).catch(() => null));
+          await btn.click().catch(() => null);
+          await Promise.race([navPromise, Promise.race(selPromises)]);
+          await page.waitForLoadState("domcontentloaded").catch(() => null);
+          await new Promise((r) => setTimeout(r, 200));
+        }
+      } catch {}
+    }
     for (const sel of selectors) {
       try {
         const el = await page.$(sel);
@@ -187,7 +202,7 @@ async function run() {
 run();
 `;
 
-    const payload = JSON.stringify({ url, selectors, timeout: timeoutMs });
+    const payload = JSON.stringify({ url, selectors, timeout: timeoutMs, preClickSelector });
     const cpName = "child_" + "process";
     const cp = (globalThis as any).require ? (globalThis as any).require(cpName) : await import("node:child_process");
 
@@ -202,7 +217,7 @@ run();
           child.kill();
         } catch {}
         resolve(null);
-      }, timeoutMs + 4000);
+      }, timeoutMs + (preClickSelector ? 10000 : 4000));
 
       child.stdout.on("data", (chunk: Buffer) => {
         stdout += chunk.toString("utf8");
@@ -245,15 +260,19 @@ run();
  */
 export async function scrapeDynamic(
   url: string,
-  selectors: string[]
+  selectors: string[],
+  options?: ScrapeOptions | number
 ): Promise<SelectorMatch | null> {
+  const timeoutMs = typeof options === "number" ? options : options?.timeoutMs ?? 8000;
+  const preClickSelector = typeof options === "object" ? options?.preClickSelector : undefined;
+
   // If running in Bun on Windows, use Node worker bridge to bypass Bun Windows pipe IPC bug
   const isBunOnWindows =
     process.platform === "win32" &&
     typeof (process as any).versions?.bun === "string";
 
   if (isBunOnWindows) {
-    return await scrapeDynamicViaNodeWorker(url, selectors, 8000);
+    return await scrapeDynamicViaNodeWorker(url, selectors, { timeoutMs, preClickSelector });
   }
 
   // In Vercel Serverless environment, local Playwright browser binaries are not installed.
@@ -285,8 +304,23 @@ export async function scrapeDynamic(
 
     await page.goto(url, {
       waitUntil: "domcontentloaded",
-      timeout: 8000,
+      timeout: timeoutMs,
     });
+
+    const activePage = page;
+    if (preClickSelector && preClickSelector.trim()) {
+      try {
+        const btn = await activePage.$(preClickSelector.trim());
+        if (btn) {
+          const navPromise = activePage.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 8000 }).catch(() => null);
+          const selPromises = selectors.map((s) => activePage.waitForSelector(s, { timeout: 5000 }).catch(() => null));
+          await btn.click().catch(() => null);
+          await Promise.race([navPromise, Promise.race(selPromises)]);
+          await activePage.waitForLoadState("domcontentloaded").catch(() => null);
+          await new Promise((r) => setTimeout(r, 200));
+        }
+      } catch {}
+    }
 
     for (const selector of selectors) {
       try {
@@ -337,8 +371,13 @@ export async function scrapeDynamic(
  */
 export async function scrapeHybrid(
   url: string,
-  selectors: string[]
+  selectors: string[],
+  options?: ScrapeOptions
 ): Promise<SelectorMatch | null> {
+  if (options?.preClickSelector && options.preClickSelector.trim()) {
+    return scrapeDynamic(url, selectors, options);
+  }
+
   try {
     const staticMatch = await scrapeStatic(url, selectors);
     if (staticMatch) {
@@ -348,7 +387,7 @@ export async function scrapeHybrid(
     // Fall back to dynamic scraping on error
   }
 
-  return scrapeDynamic(url, selectors);
+  return scrapeDynamic(url, selectors, options);
 }
 
 export const scrapeBrowser = scrapeDynamic;
@@ -376,8 +415,11 @@ function createEmptyMultiFieldResult(
 async function scrapeDynamicMultiViaNodeWorker(
   url: string,
   fields: MultiFieldTarget[],
-  timeoutMs: number = 8000
+  options?: ScrapeOptions | number
 ): Promise<Record<string, MultiFieldMatch | null>> {
+  const timeoutMs = typeof options === "number" ? options : options?.timeoutMs ?? 8000;
+  const preClickSelector = typeof options === "object" ? options?.preClickSelector : undefined;
+
   try {
     const script = `
 const { chromium } = require("playwright");
@@ -386,7 +428,7 @@ async function run() {
   for await (const chunk of process.stdin) chunks.push(chunk);
   const inputStr = Buffer.concat(chunks).toString("utf8");
   if (!inputStr) { process.stdout.write(JSON.stringify({})); process.exit(0); }
-  const { url, fields, timeout = 8000 } = JSON.parse(inputStr);
+  const { url, fields, timeout = 8000, preClickSelector } = JSON.parse(inputStr);
   const result = {};
   for (const f of fields) {
     result[f.id] = null;
@@ -402,6 +444,20 @@ async function run() {
     });
     const page = await ctx.newPage();
     await page.goto(url, { waitUntil: "domcontentloaded", timeout });
+    if (preClickSelector && typeof preClickSelector === "string" && preClickSelector.trim()) {
+      try {
+        const btn = await page.$(preClickSelector.trim());
+        if (btn) {
+          const navPromise = page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 8000 }).catch(() => null);
+          const allSels = fields.flatMap((f) => f.selectors || []);
+          const selPromises = allSels.map((s) => page.waitForSelector(s, { timeout: 5000 }).catch(() => null));
+          await btn.click().catch(() => null);
+          await Promise.race([navPromise, Promise.race(selPromises)]);
+          await page.waitForLoadState("domcontentloaded").catch(() => null);
+          await new Promise((r) => setTimeout(r, 200));
+        }
+      } catch {}
+    }
     for (const f of fields) {
       for (const sel of f.selectors) {
         if (!sel || !sel.trim()) continue;
@@ -429,7 +485,7 @@ async function run() {
 run();
 `;
 
-    const payload = JSON.stringify({ url, fields, timeout: timeoutMs });
+    const payload = JSON.stringify({ url, fields, timeout: timeoutMs, preClickSelector });
     const cpName = "child_" + "process";
     const cp = (globalThis as any).require ? (globalThis as any).require(cpName) : await import("node:child_process");
 
@@ -444,7 +500,7 @@ run();
           child.kill();
         } catch {}
         resolve(createEmptyMultiFieldResult(fields));
-      }, timeoutMs + 4000);
+      }, timeoutMs + (preClickSelector ? 10000 : 4000));
 
       child.stdout.on("data", (chunk: Buffer) => {
         stdout += chunk.toString("utf8");
@@ -491,14 +547,18 @@ run();
 
 export async function scrapeBrowserMulti(
   url: string,
-  fields: MultiFieldTarget[]
+  fields: MultiFieldTarget[],
+  options?: ScrapeOptions | number
 ): Promise<Record<string, MultiFieldMatch | null>> {
+  const timeoutMs = typeof options === "number" ? options : options?.timeoutMs ?? 8000;
+  const preClickSelector = typeof options === "object" ? options?.preClickSelector : undefined;
+
   const isBunOnWindows =
     process.platform === "win32" &&
     typeof (process as any).versions?.bun === "string";
 
   if (isBunOnWindows) {
-    return await scrapeDynamicMultiViaNodeWorker(url, fields, 8000);
+    return await scrapeDynamicMultiViaNodeWorker(url, fields, { timeoutMs, preClickSelector });
   }
 
   if (process.env.VERCEL) {
@@ -529,8 +589,24 @@ export async function scrapeBrowserMulti(
 
     await page.goto(url, {
       waitUntil: "domcontentloaded",
-      timeout: 8000,
+      timeout: timeoutMs,
     });
+
+    const activePage = page;
+    if (preClickSelector && preClickSelector.trim()) {
+      try {
+        const btn = await activePage.$(preClickSelector.trim());
+        if (btn) {
+          const navPromise = activePage.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 8000 }).catch(() => null);
+          const allSels = fields.flatMap((f) => f.selectors || []);
+          const selPromises = allSels.map((s) => activePage.waitForSelector(s, { timeout: 5000 }).catch(() => null));
+          await btn.click().catch(() => null);
+          await Promise.race([navPromise, Promise.race(selPromises)]);
+          await activePage.waitForLoadState("domcontentloaded").catch(() => null);
+          await new Promise((r) => setTimeout(r, 200));
+        }
+      } catch {}
+    }
 
     for (const f of fields) {
       for (const sel of f.selectors) {
@@ -576,7 +652,8 @@ export async function scrapeBrowserMulti(
  */
 export async function scrapeMultiField(
   url: string,
-  fields: MultiFieldTarget[]
+  fields: MultiFieldTarget[],
+  options?: ScrapeOptions
 ): Promise<Record<string, MultiFieldMatch | null>> {
   const result: Record<string, MultiFieldMatch | null> = {};
   for (const f of fields) {
@@ -584,6 +661,19 @@ export async function scrapeMultiField(
   }
 
   if (!fields || fields.length === 0) {
+    return result;
+  }
+
+  // If preClickSelector is configured, bypass static scraping completely
+  if (options?.preClickSelector && options.preClickSelector.trim()) {
+    try {
+      const browserResult = await scrapeBrowserMulti(url, fields, options);
+      for (const [fieldId, match] of Object.entries(browserResult)) {
+        if (match) {
+          result[fieldId] = match;
+        }
+      }
+    } catch {}
     return result;
   }
 
@@ -648,7 +738,7 @@ export async function scrapeMultiField(
 
   // 2. Playwright fallback if missing fields and page might be dynamic
   try {
-    const browserResult = await scrapeBrowserMulti(url, missingFields);
+    const browserResult = await scrapeBrowserMulti(url, missingFields, options);
     for (const [fieldId, match] of Object.entries(browserResult)) {
       if (match) {
         result[fieldId] = match;

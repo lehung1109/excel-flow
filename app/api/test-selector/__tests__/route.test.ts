@@ -324,5 +324,36 @@ describe("POST /api/test-selector", () => {
         scrapeSpy.mockRestore();
       }
     });
+
+    it("passes preClickSelector to scrapeMultiField when provided in multi-field mode", async () => {
+      const scrapeSpy = spyOn(scraper, "scrapeMultiField").mockResolvedValue({
+        f1: { text: "Data after submit", matchedSelector: ".result" },
+      });
+
+      try {
+        const req = new NextRequest("http://localhost:3000/api/test-selector", {
+          method: "POST",
+          body: JSON.stringify({
+            url: "https://example.com/form",
+            fields: [{ id: "f1", selectors: [".result"] }],
+            preClickSelector: 'button[type="submit"].btn.btn-primary',
+          }),
+          headers: { "Content-Type": "application/json" },
+        });
+
+        const res = await POST(req);
+        expect(res.status).toBe(200);
+        const json = await res.json();
+        expect(json.success).toBe(true);
+
+        expect(scrapeSpy).toHaveBeenCalledWith(
+          "https://example.com/form",
+          [{ id: "f1", selectors: [".result"] }],
+          { preClickSelector: 'button[type="submit"].btn.btn-primary' }
+        );
+      } finally {
+        scrapeSpy.mockRestore();
+      }
+    });
   });
 });

@@ -37,6 +37,7 @@ describe("Home Page Component (app/page.tsx)", () => {
     expect(html).toContain("3. Danh sách CSS Selector");
     expect(html).toContain("Phạm vi dòng cần cào:");
     expect(html).toContain("Bỏ qua các cột/ô đã có dữ liệu");
+    expect(html).toContain("Tương tác trước khi cào dữ liệu");
 
     // Step 3: Execution & Results Dashboard
     expect(html).toContain("Bước 3: Tiến trình Cào dữ liệu");

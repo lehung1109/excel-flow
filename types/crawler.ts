@@ -7,6 +7,11 @@ export interface SelectorMatch {
   durationMs?: number;
 }
 
+export interface ScrapeOptions {
+  preClickSelector?: string;
+  timeoutMs?: number;
+}
+
 export type CrawlStatus = "success" | "failed" | "skipped";
 
 export interface CrawlRowResult {
