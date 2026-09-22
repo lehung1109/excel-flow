@@ -22,6 +22,36 @@ export type TargetColumnConfig =
   | { mode: "existing"; colIndex: number }
   | { mode: "new"; colName: string };
 
+export interface ExtractionFieldConfig {
+  id: string;
+  name: string;
+  selectors: string[];
+  targetColumn: TargetColumnConfig;
+}
+
+export interface SavedConfigRecord {
+  id: number;
+  name: string;
+  description?: string | null;
+  fields: ExtractionFieldConfig[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FieldCrawlResult {
+  text: string;
+  matchedSelector?: string;
+  error?: string;
+}
+
+export interface MultiFieldRowResult {
+  rowIndex: number;
+  url: string;
+  status: CrawlStatus;
+  fieldResults: Record<string, FieldCrawlResult>;
+  error?: string;
+}
+
 export interface ExcelColumnInfo {
   index: number; // 1-indexed
   header: string;
