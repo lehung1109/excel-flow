@@ -56,6 +56,12 @@ describe("url-utils", () => {
       expect(result).toBe("Quotes: \"double\" and 'single', tags: <tag>");
     });
 
+    it("avoids double-unescaping when &amp; is part of an encoded entity", () => {
+      const input = "&amp;lt;div&amp;gt; &amp;amp; &amp;quot;";
+      const result = sanitizeExtractedText(input);
+      expect(result).toBe("&lt;div&gt; &amp; &quot;");
+    });
+
     it("handles empty or whitespace-only strings", () => {
       expect(sanitizeExtractedText("")).toBe("");
       expect(sanitizeExtractedText("   \n\t  ")).toBe("");

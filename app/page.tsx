@@ -1,15 +1,7 @@
 "use client";
 
 import React, { useMemo, useRef, useState } from "react";
-import {
-  FileSpreadsheet,
-  CheckCircle2,
-  AlertCircle,
-  Clock,
-  Sparkles,
-  Layers,
-  ArrowRight,
-} from "lucide-react";
+import { FileSpreadsheet, CheckCircle2 } from "lucide-react";
 import FileUploadZone from "@/components/FileUploadZone";
 import SelectorConfig from "@/components/SelectorConfig";
 import TestSelectorModal from "@/components/TestSelectorModal";
