@@ -3,7 +3,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import TestSelectorModal from "../TestSelectorModal";
 import LiveProgressDashboard from "../LiveProgressDashboard";
-import type { CrawlJobSummary, CrawlRowResult } from "@/types/crawler";
+import type { CrawlJobSummary, CrawlRowResult, ExtractionFieldConfig } from "@/types/crawler";
 
 describe("TestSelectorModal Component", () => {
   it("renders null when isOpen is false", () => {
@@ -60,6 +60,109 @@ describe("TestSelectorModal Component", () => {
     expect(html).toContain("Chưa có selector nào được cấu hình");
     // Button should be disabled
     expect(html).toContain("disabled");
+  });
+
+  it("renders configured fields when fields prop is provided", () => {
+    const sampleFields: ExtractionFieldConfig[] = [
+      {
+        id: "f_title",
+        name: "Tiêu đề SP",
+        selectors: ["h1.product-title", "h1"],
+        targetColumn: { mode: "new", colName: "TieuDe" },
+      },
+      {
+        id: "f_price",
+        name: "Giá bán",
+        selectors: [".price", ".amount"],
+        targetColumn: { mode: "existing", colIndex: 2 },
+      },
+    ];
+
+    const html = renderToStaticMarkup(
+      <TestSelectorModal
+        isOpen={true}
+        onClose={() => {}}
+        sampleUrl="https://example.com/product/123"
+        fields={sampleFields}
+      />
+    );
+
+    // Shows field count & names
+    expect(html).toContain("Danh sách trường bóc tách (2)");
+    expect(html).toContain("Tiêu đề SP");
+    expect(html).toContain("Giá bán");
+    expect(html).toContain("h1.product-title");
+    expect(html).toContain(".price");
+    expect(html).toContain("Bắt đầu Test Thử");
+  });
+
+  it("renders alert when fields list is empty", () => {
+    const html = renderToStaticMarkup(
+      <TestSelectorModal
+        isOpen={true}
+        onClose={() => {}}
+        sampleUrl="https://example.com"
+        fields={[]}
+      />
+    );
+
+    expect(html).toContain("Chưa có trường nào được cấu hình");
+    expect(html).toContain("disabled");
+  });
+
+  it("renders multi-field preview results table with field names, matched selectors, and extracted text", () => {
+    const sampleFields: ExtractionFieldConfig[] = [
+      {
+        id: "f_title",
+        name: "Tiêu đề SP",
+        selectors: ["h1.product-title"],
+        targetColumn: { mode: "new", colName: "TieuDe" },
+      },
+      {
+        id: "f_price",
+        name: "Giá bán",
+        selectors: [".price"],
+        targetColumn: { mode: "existing", colIndex: 2 },
+      },
+    ];
+
+    const initialResult = {
+      success: true,
+      fieldResults: {
+        f_title: {
+          text: "iPhone 16 Pro Max 256GB",
+          matchedSelector: "h1.product-title",
+        },
+        f_price: {
+          text: "",
+          error: "Không tìm thấy nội dung nào khớp",
+        },
+      },
+    };
+
+    const html = renderToStaticMarkup(
+      <TestSelectorModal
+        isOpen={true}
+        onClose={() => {}}
+        sampleUrl="https://example.com/p1"
+        fields={sampleFields}
+        initialResult={initialResult}
+      />
+    );
+
+    // Table headers
+    expect(html).toContain("Tên trường");
+    expect(html).toContain("Selector khớp");
+    expect(html).toContain("Nội dung bóc tách");
+
+    // Row 1 (matched)
+    expect(html).toContain("Tiêu đề SP");
+    expect(html).toContain("h1.product-title");
+    expect(html).toContain("iPhone 16 Pro Max 256GB");
+
+    // Row 2 (unmatched / error)
+    expect(html).toContain("Giá bán");
+    expect(html).toContain("Không tìm thấy nội dung nào khớp");
   });
 });
 
@@ -336,5 +439,66 @@ describe("LiveProgressDashboard Component", () => {
     expect(html).toContain("#151");
     // Row 2 (the first item, oldest) should not be present in the 100 most recent rows (which start from index 50: row 52)
     expect(html).not.toContain("#2<");
+  });
+
+  it("renders row results with multi-field badges/pills in the log table", () => {
+    const multiLogs = [
+      {
+        rowIndex: 2,
+        url: "https://shop.example.com/p/1",
+        status: "success" as const,
+        fieldResults: {
+          "Tiêu đề": {
+            text: "iPhone 16 Pro Max",
+            matchedSelector: "h1.title",
+          },
+          "Giá": {
+            text: "34.990.000đ",
+            matchedSelector: ".price",
+          },
+        },
+      },
+      {
+        rowIndex: 3,
+        url: "https://shop.example.com/p/2",
+        status: "failed" as const,
+        error: "Không tìm thấy selector nào khớp",
+        fieldResults: {
+          "Tiêu đề": {
+            text: "",
+            error: "Không tìm thấy selector nào khớp",
+          },
+          "Giá": {
+            text: "",
+            error: "Không tìm thấy selector nào khớp",
+          },
+        },
+      },
+    ];
+
+    const html = renderToStaticMarkup(
+      <LiveProgressDashboard
+        isRunning={false}
+        progressPercent={100}
+        processedCount={2}
+        totalCount={2}
+        etaSeconds={0}
+        logs={multiLogs}
+        summary={null}
+        downloadId="multi-test"
+        onStart={() => {}}
+        onAbort={() => {}}
+        canStart={true}
+      />
+    );
+
+    // Multi-field pills with field names & values
+    expect(html).toContain("Tiêu đề:");
+    expect(html).toContain("iPhone 16 Pro Max");
+    expect(html).toContain("Giá:");
+    expect(html).toContain("34.990.000đ");
+
+    // Row 3 error representation
+    expect(html).toContain("Không tìm thấy selector nào khớp");
   });
 });

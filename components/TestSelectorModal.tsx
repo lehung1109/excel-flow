@@ -12,41 +12,50 @@ import {
   Globe,
   Layers,
 } from "lucide-react";
-import type { ScrapeMethod } from "@/types/crawler";
+import type { ExtractionFieldConfig, FieldCrawlResult, ScrapeMethod } from "@/types/crawler";
 
-export interface TestSelectorModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  sampleUrl: string;
-  selectors: string[];
-}
-
-interface TestResultState {
+export interface TestResultState {
   success: boolean;
   matchedSelector?: string;
   textContent?: string;
   method?: ScrapeMethod;
   durationMs?: number;
   error?: string;
+  fieldResults?: Record<string, FieldCrawlResult>;
+}
+
+export interface TestSelectorModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  sampleUrl: string;
+  fields?: ExtractionFieldConfig[];
+  selectors?: string[];
+  initialResult?: TestResultState | null;
 }
 
 export default function TestSelectorModal({
   isOpen,
   onClose,
   sampleUrl,
+  fields,
   selectors,
+  initialResult = null,
 }: TestSelectorModalProps) {
   const [url, setUrl] = useState(sampleUrl || "");
   const [isLoading, setIsLoading] = useState(false);
-  const [result, setResult] = useState<TestResultState | null>(null);
+  const [result, setResult] = useState<TestResultState | null>(initialResult || null);
   const [generalError, setGeneralError] = useState<string | null>(null);
 
-  // Sync sampleUrl when modal opens or sampleUrl prop changes
+  const isMultiField = Boolean(fields !== undefined);
+  const activeFields = fields || [];
+  const activeSelectors = selectors || [];
+
+  // Sync sampleUrl & initialResult when modal opens or props change
   useEffect(() => {
     setUrl(sampleUrl || "");
-    setResult(null);
+    setResult(initialResult || null);
     setGeneralError(null);
-  }, [sampleUrl, isOpen]);
+  }, [sampleUrl, isOpen, initialResult]);
 
   // Handle ESC key press
   useEffect(() => {
@@ -66,20 +75,22 @@ export default function TestSelectorModal({
 
   const handleRunTest = async () => {
     const trimmedUrl = url.trim();
-    if (!trimmedUrl || selectors.length === 0) return;
+    if (!trimmedUrl) return;
+    if (isMultiField ? activeFields.length === 0 : activeSelectors.length === 0) return;
 
     setIsLoading(true);
     setResult(null);
     setGeneralError(null);
 
     try {
+      const payload = isMultiField
+        ? { url: trimmedUrl, fields: activeFields }
+        : { url: trimmedUrl, selectors: activeSelectors };
+
       const response = await fetch("/api/test-selector", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url: trimmedUrl,
-          selectors,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const contentType = response.headers.get("content-type") || "";
@@ -94,7 +105,14 @@ export default function TestSelectorModal({
       }
 
       if (response.ok && data) {
-        setResult(data);
+        if (data.results) {
+          setResult({
+            success: Boolean(data.success),
+            fieldResults: data.results,
+          });
+        } else {
+          setResult(data);
+        }
       } else if (data?.error) {
         setGeneralError(data.error);
       } else if (response.status === 504) {
@@ -118,7 +136,10 @@ export default function TestSelectorModal({
     }
   };
 
-  const isButtonDisabled = isLoading || !url.trim() || selectors.length === 0;
+  const isButtonDisabled =
+    isLoading ||
+    !url.trim() ||
+    (isMultiField ? activeFields.length === 0 : activeSelectors.length === 0);
 
   return (
     <div
@@ -183,35 +204,84 @@ export default function TestSelectorModal({
             </p>
           </div>
 
-          {/* Active selectors list */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider">
-                Danh sách Selector ({selectors.length})
-              </label>
-              <span className="text-[11px] text-slate-400">Ưu tiên từ trên xuống dưới</span>
+          {/* Active configuration list */}
+          {isMultiField ? (
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                  Danh sách trường bóc tách ({activeFields.length})
+                </label>
+                <span className="text-[11px] text-slate-400">
+                  {activeFields.reduce((acc, f) => acc + f.selectors.length, 0)} selectors tổng cộng
+                </span>
+              </div>
+              {activeFields.length === 0 ? (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>Chưa có trường nào được cấu hình. Vui lòng thêm ít nhất 1 trường.</span>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-36 overflow-y-auto p-2.5 bg-slate-50 border border-slate-200 rounded-lg">
+                  {activeFields.map((field, idx) => (
+                    <div
+                      key={field.id || idx}
+                      className="p-2 bg-white border border-slate-200 rounded-md text-xs space-y-1 shadow-xs"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-slate-800">
+                          #{idx + 1} {field.name || field.id}
+                        </span>
+                        <span className="text-[11px] text-slate-500 font-sans">
+                          {field.targetColumn.mode === "new"
+                            ? `Cột mới: ${field.targetColumn.colName || "(chưa đặt tên)"}`
+                            : `Cột ${field.targetColumn.colIndex}`}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {field.selectors.map((sel, sIdx) => (
+                          <span
+                            key={`${sel}-${sIdx}`}
+                            className="inline-flex items-center px-1.5 py-0.5 bg-slate-100 border border-slate-200 text-slate-700 rounded text-[11px] font-mono"
+                          >
+                            {sel}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-            {selectors.length === 0 ? (
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700 flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>Chưa có selector nào được cấu hình. Vui lòng thêm ít nhất 1 selector.</span>
+          ) : (
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                  Danh sách Selector ({activeSelectors.length})
+                </label>
+                <span className="text-[11px] text-slate-400">Ưu tiên từ trên xuống dưới</span>
               </div>
-            ) : (
-              <div className="flex flex-wrap gap-2 max-h-28 overflow-y-auto p-2.5 bg-slate-50 border border-slate-200 rounded-lg">
-                {selectors.map((sel, idx) => (
-                  <span
-                    key={`${sel}-${idx}`}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-slate-200 text-slate-700 rounded text-xs font-mono shadow-xs"
-                  >
-                    <span className="text-[10px] font-sans font-semibold text-emerald-600 bg-emerald-50 px-1 py-0.2 rounded">
-                      #{idx + 1}
+              {activeSelectors.length === 0 ? (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>Chưa có selector nào được cấu hình. Vui lòng thêm ít nhất 1 selector.</span>
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-2 max-h-28 overflow-y-auto p-2.5 bg-slate-50 border border-slate-200 rounded-lg">
+                  {activeSelectors.map((sel, idx) => (
+                    <span
+                      key={`${sel}-${idx}`}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-slate-200 text-slate-700 rounded text-xs font-mono shadow-xs"
+                    >
+                      <span className="text-[10px] font-sans font-semibold text-emerald-600 bg-emerald-50 px-1 py-0.2 rounded">
+                        #{idx + 1}
+                      </span>
+                      {sel}
                     </span>
-                    {sel}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Action button */}
           <div>
@@ -253,7 +323,94 @@ export default function TestSelectorModal({
           {/* Result card */}
           {result && (
             <div className="transition-all duration-200">
-              {result.success ? (
+              {result.fieldResults ? (
+                <div className="p-4 bg-slate-50/80 border border-slate-200 rounded-xl space-y-3">
+                  <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-slate-200">
+                    <div className="flex items-center gap-2 text-slate-800 font-semibold text-sm">
+                      {Object.values(result.fieldResults).some((r) => r.text) ? (
+                        <>
+                          <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                          <span className="text-emerald-800">Kết quả kiểm tra đa trường</span>
+                        </>
+                      ) : (
+                        <>
+                          <AlertCircle className="w-5 h-5 text-amber-600" />
+                          <span className="text-amber-800">Không tìm thấy nội dung khớp</span>
+                        </>
+                      )}
+                    </div>
+
+                    <div className="text-xs text-slate-500 font-medium">
+                      Khớp {Object.values(result.fieldResults).filter((r) => r.text).length} /{" "}
+                      {Object.keys(result.fieldResults).length} trường
+                    </div>
+                  </div>
+
+                  <div className="border border-slate-200 rounded-lg overflow-hidden bg-white shadow-xs">
+                    <div className="overflow-x-auto max-h-64 overflow-y-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
+                          <tr className="text-slate-600 font-semibold">
+                            <th className="py-2.5 px-3 w-1/4">Tên trường</th>
+                            <th className="py-2.5 px-3 w-1/3">Selector khớp</th>
+                            <th className="py-2.5 px-3">Nội dung bóc tách</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {(activeFields.length > 0
+                            ? activeFields.map((f) => ({
+                                id: f.id,
+                                name: f.name || f.id,
+                                res: result.fieldResults?.[f.id],
+                              }))
+                            : Object.entries(result.fieldResults).map(([id, res]) => ({
+                                id,
+                                name: id,
+                                res,
+                              }))
+                          ).map(({ id, name, res }) => {
+                            const isMatched = Boolean(res && res.text);
+                            return (
+                              <tr key={id} className="hover:bg-slate-50/50">
+                                <td className="py-2.5 px-3 font-medium text-slate-800 align-top">
+                                  <div className="flex items-center gap-1.5">
+                                    {isMatched ? (
+                                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                                    ) : (
+                                      <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
+                                    )}
+                                    <span>{name}</span>
+                                  </div>
+                                </td>
+                                <td className="py-2.5 px-3 font-mono text-[11px] align-top">
+                                  {res?.matchedSelector ? (
+                                    <code className="px-1.5 py-0.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded font-semibold break-all">
+                                      {res.matchedSelector}
+                                    </code>
+                                  ) : (
+                                    <span className="text-slate-400 italic">Không khớp</span>
+                                  )}
+                                </td>
+                                <td className="py-2.5 px-3 align-top">
+                                  {res?.text ? (
+                                    <div className="max-h-24 overflow-y-auto whitespace-pre-wrap font-mono text-xs text-slate-800 bg-slate-50 p-2 rounded border border-slate-200 break-words">
+                                      {res.text}
+                                    </div>
+                                  ) : (
+                                    <span className="text-rose-600 text-xs italic">
+                                      {res?.error || "Không tìm thấy nội dung nào khớp"}
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              ) : result.success ? (
                 <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-3">
                   <div className="flex items-center justify-between flex-wrap gap-2">
                     <div className="flex items-center gap-2 text-emerald-800 font-semibold text-sm">

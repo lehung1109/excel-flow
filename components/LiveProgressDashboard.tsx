@@ -14,7 +14,19 @@ import {
   AlertCircle,
   ExternalLink,
 } from "lucide-react";
-import type { CrawlRowResult, CrawlJobSummary, CrawlStatus } from "@/types/crawler";
+import type {
+  CrawlRowResult,
+  CrawlJobSummary,
+  CrawlStatus,
+  FieldCrawlResult,
+  MultiFieldRowResult,
+} from "@/types/crawler";
+
+export type DashboardLogRow = (CrawlRowResult | MultiFieldRowResult) & {
+  fieldResults?: Record<string, FieldCrawlResult>;
+  matchedSelector?: string;
+  text?: string;
+};
 
 export interface LiveProgressDashboardProps {
   isRunning: boolean;
@@ -22,7 +34,7 @@ export interface LiveProgressDashboardProps {
   processedCount: number;
   totalCount: number;
   etaSeconds: number;
-  logs: CrawlRowResult[];
+  logs: DashboardLogRow[];
   summary: CrawlJobSummary | null;
   downloadId: string | null;
   downloadUrl?: string | null;
@@ -296,6 +308,21 @@ export default function LiveProgressDashboard({
                             <code className="px-1.5 py-0.5 bg-slate-100 border border-slate-200 rounded text-[11px] text-slate-700">
                               {log.matchedSelector}
                             </code>
+                          ) : log.fieldResults &&
+                            Object.values(log.fieldResults).some((f) => f.matchedSelector) ? (
+                            <div className="flex flex-wrap gap-1">
+                              {Object.entries(log.fieldResults)
+                                .filter(([_, f]) => f.matchedSelector)
+                                .map(([fName, f]) => (
+                                  <code
+                                    key={fName}
+                                    className="px-1.5 py-0.5 bg-slate-100 border border-slate-200 rounded text-[11px] text-slate-700"
+                                    title={`${fName}: ${f.matchedSelector}`}
+                                  >
+                                    {f.matchedSelector}
+                                  </code>
+                                ))}
+                            </div>
                           ) : (
                             <span className="text-slate-400">-</span>
                           )}
@@ -303,7 +330,29 @@ export default function LiveProgressDashboard({
 
                         {/* Extracted text / error */}
                         <td className="py-2 px-3">
-                          {log.text ? (
+                          {log.fieldResults && Object.keys(log.fieldResults).length > 0 ? (
+                            <div className="flex flex-wrap gap-1.5">
+                              {Object.entries(log.fieldResults).map(([fName, fRes]) => {
+                                const hasValue = Boolean(fRes.text);
+                                return (
+                                  <span
+                                    key={fName}
+                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono border ${
+                                      hasValue
+                                        ? "bg-slate-50 border-slate-200 text-slate-800"
+                                        : "bg-rose-50/60 border-rose-200 text-rose-600"
+                                    }`}
+                                    title={fRes.text || fRes.error || undefined}
+                                  >
+                                    <span className="font-semibold text-slate-700">{fName}:</span>
+                                    <span className="truncate max-w-[200px]">
+                                      {fRes.text || fRes.error || "(trống)"}
+                                    </span>
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          ) : log.text ? (
                             <span
                               className="text-slate-800 font-mono text-xs line-clamp-2"
                               title={log.text}
