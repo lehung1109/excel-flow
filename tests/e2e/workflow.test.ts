@@ -1,9 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { NextRequest } from "next/server";
 import ExcelJS from "exceljs";
+import { POST } from "@/app/api/crawl/route";
 import { inspectExcelBuffer, enrichExcelBuffer } from "@/lib/excel-service";
 import { scrapeHybrid, closeBrowser } from "@/lib/scraper";
 import { saveTempFile, getTempFile } from "@/lib/temp-store";
 import { normalizeUrl } from "@/lib/url-utils";
+import type { ExtractionFieldConfig } from "@/types/crawler";
 
 describe("End-to-End Workflow Integration Test", () => {
   let server: ReturnType<typeof Bun.serve>;
@@ -249,5 +252,141 @@ describe("End-to-End Workflow Integration Test", () => {
       "Premium audio with active noise cancellation."
     );
     expect(verifiedSheet.getRow(3).getCell(3).value).toBe("Old description 2");
+  });
+
+  it("completes full end-to-end multi-field crawl workflow via /api/crawl SSE endpoint", async () => {
+    // 1. Create in-memory Excel workbook with URLs
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("Products");
+
+    // Header row (Row 1)
+    sheet.addRow(["ID", "Product Name", "Product URL", "Initial Price"]);
+
+    // Data rows (Rows 2 - 5)
+    sheet.addRow([101, "Headphones", `${baseUrl}/product-1`, 100]);
+    sheet.addRow([102, "Keyboard", `${baseUrl}/product-2`, 50]);
+    sheet.addRow([103, "Monitor", `${baseUrl}/product-3`, 200]);
+    sheet.addRow([104, "Invalid Row", "invalid://not-a-web-url", 0]);
+
+    const initialBuffer = await workbook.xlsx.writeBuffer();
+    const file = new File([initialBuffer], "products_input.xlsx", {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+
+    // 2. Multi-field config with 2 fields: Title -> new col "Tieu_De", Price -> new col "Gia"
+    const fields: ExtractionFieldConfig[] = [
+      {
+        id: "field_title",
+        name: "Tiêu đề",
+        selectors: ["h1.product-title", "h1.entry-title", ".title"],
+        targetColumn: { mode: "new", colName: "Tieu_De" },
+      },
+      {
+        id: "field_price",
+        name: "Giá tiền",
+        selectors: [".price"],
+        targetColumn: { mode: "new", colName: "Gia" },
+      },
+    ];
+
+    // 3. POST to /api/crawl with formData
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("urlColIndex", "3");
+    formData.append("fields", JSON.stringify(fields));
+    formData.append("sheetName", "Products");
+
+    const req = new NextRequest("http://localhost:3000/api/crawl", {
+      method: "POST",
+      body: formData,
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/event-stream");
+
+    // 4. Process SSE stream to completion
+    const rawText = await res.text();
+    const events = rawText
+      .split("\n\n")
+      .map((c) => c.trim())
+      .filter((c) => c.length > 0)
+      .map((chunk) => {
+        let event = "message";
+        let dataStr = "";
+        for (const line of chunk.split("\n")) {
+          if (line.startsWith("event: ")) {
+            event = line.slice("event: ".length).trim();
+          } else if (line.startsWith("data: ")) {
+            dataStr = line.slice("data: ".length).trim();
+          }
+        }
+        return { event, data: JSON.parse(dataStr) };
+      });
+
+    const startEvent = events.find((e) => e.event === "start");
+    expect(startEvent).toBeDefined();
+    expect(startEvent?.data.totalRows).toBe(4);
+
+    const progressEvents = events.filter((e) => e.event === "row_progress");
+    expect(progressEvents.length).toBe(4);
+
+    const completeEvent = events.find((e) => e.event === "complete");
+    expect(completeEvent).toBeDefined();
+    expect(completeEvent?.data.success).toBe(true);
+    expect(completeEvent?.data.downloadId).toBeDefined();
+    expect(completeEvent?.data.summary.total).toBe(4);
+    expect(completeEvent?.data.summary.succeeded).toBe(3);
+    expect(completeEvent?.data.summary.skipped).toBe(1);
+
+    // 5. Download enriched file and assert columns
+    const fileRecord = getTempFile(completeEvent!.data.downloadId);
+    expect(fileRecord).not.toBeNull();
+
+    const verifiedWorkbook = new ExcelJS.Workbook();
+    await verifiedWorkbook.xlsx.load(fileRecord!.buffer as unknown as ExcelJS.Buffer);
+    const verifiedSheet = verifiedWorkbook.getWorksheet("Products");
+    expect(verifiedSheet).toBeDefined();
+
+    // Verify header row: Col 5 is "Tieu_De", Col 6 is "Gia", both bold
+    const headerRow = verifiedSheet!.getRow(1);
+    expect(headerRow.getCell(1).value).toBe("ID");
+    expect(headerRow.getCell(2).value).toBe("Product Name");
+    expect(headerRow.getCell(3).value).toBe("Product URL");
+    expect(headerRow.getCell(4).value).toBe("Initial Price");
+
+    expect(headerRow.getCell(5).value).toBe("Tieu_De");
+    expect(headerRow.getCell(5).font?.bold).toBe(true);
+
+    expect(headerRow.getCell(6).value).toBe("Gia");
+    expect(headerRow.getCell(6).font?.bold).toBe(true);
+
+    // Verify Row 2 (Product 1)
+    const row2 = verifiedSheet!.getRow(2);
+    expect(row2.getCell(1).value).toBe(101);
+    expect(row2.getCell(3).value).toBe(`${baseUrl}/product-1`);
+    expect(row2.getCell(5).value).toBe("Wireless Noise-Canceling Headphones");
+    expect(row2.getCell(6).value).toBe("$199.99");
+
+    // Verify Row 3 (Product 2)
+    const row3 = verifiedSheet!.getRow(3);
+    expect(row3.getCell(1).value).toBe(102);
+    expect(row3.getCell(3).value).toBe(`${baseUrl}/product-2`);
+    expect(row3.getCell(5).value).toBe("Mechanical Gaming Keyboard");
+    expect(row3.getCell(6).value).toBe("$89.50");
+
+    // Verify Row 4 (Product 3)
+    const row4 = verifiedSheet!.getRow(4);
+    expect(row4.getCell(1).value).toBe(103);
+    expect(row4.getCell(3).value).toBe(`${baseUrl}/product-3`);
+    expect(row4.getCell(5).value).toBe("Ultra HD Smart Monitor");
+    expect(row4.getCell(6).value).toBe("$329.00");
+
+    // Verify Row 5 (Invalid URL)
+    const row5 = verifiedSheet!.getRow(5);
+    expect(row5.getCell(1).value).toBe(104);
+    expect(row5.getCell(3).value).toBe("invalid://not-a-web-url");
+    expect(row5.getCell(5).value).toBeNull();
+    expect(row5.getCell(6).value).toBeNull();
   });
 });

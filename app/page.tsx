@@ -8,23 +8,28 @@ import TestSelectorModal from "@/components/TestSelectorModal";
 import LiveProgressDashboard from "@/components/LiveProgressDashboard";
 import type {
   CrawlJobSummary,
-  CrawlRowResult,
   ExcelColumnInfo,
   ExcelSheetSummary,
-  TargetColumnConfig,
+  ExtractionFieldConfig,
 } from "@/types/crawler";
+import type { DashboardLogRow } from "@/components/LiveProgressDashboard";
 
-const DEFAULT_SELECTORS = [
-  "h1.product-title",
-  "h1.entry-title",
-  "h1",
-  ".title",
+const DEFAULT_FIELDS: ExtractionFieldConfig[] = [
+  {
+    id: "field_1",
+    name: "Trường 1",
+    selectors: [
+      "h1.product-title",
+      "h1.entry-title",
+      "h1",
+      ".title",
+    ],
+    targetColumn: {
+      mode: "new",
+      colName: "Extracted_Content",
+    },
+  },
 ];
-
-const DEFAULT_TARGET_CONFIG: TargetColumnConfig = {
-  mode: "new",
-  colName: "Extracted_Content",
-};
 
 const URL_COLUMN_KEYWORDS = ["url", "link", "href", "web", "trang"];
 
@@ -46,9 +51,7 @@ export default function Home() {
 
   // Crawler configuration state
   const [urlColIndex, setUrlColIndex] = useState<number | null>(null);
-  const [selectors, setSelectors] = useState<string[]>(DEFAULT_SELECTORS);
-  const [targetConfig, setTargetConfig] =
-    useState<TargetColumnConfig>(DEFAULT_TARGET_CONFIG);
+  const [fields, setFields] = useState<ExtractionFieldConfig[]>(DEFAULT_FIELDS);
   const [rowRange, setRowRange] = useState<{
     startRow: number;
     endRow: number;
@@ -63,7 +66,7 @@ export default function Home() {
   const [processedCount, setProcessedCount] = useState<number>(0);
   const [totalCount, setTotalCount] = useState<number>(0);
   const [etaSeconds, setEtaSeconds] = useState<number>(0);
-  const [logs, setLogs] = useState<CrawlRowResult[]>([]);
+  const [logs, setLogs] = useState<DashboardLogRow[]>([]);
   const [summary, setSummary] = useState<CrawlJobSummary | null>(null);
   const [downloadId, setDownloadId] = useState<string | null>(null);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
@@ -91,24 +94,21 @@ export default function Home() {
   }, [activeSheet]);
 
   // Derive sample URL from active sheet and chosen URL column
-  const sampleUrl = useMemo(() => {
-    if (!activeSheet || urlColIndex === null) {
-      return "";
-    }
+  let sampleUrl = "";
+  if (activeSheet && urlColIndex !== null && activeSheet.sampleRows) {
     const colPosition = activeSheet.columns.findIndex(
       (c) => c.index === urlColIndex
     );
-    if (colPosition === -1 || !activeSheet.sampleRows) {
-      return "";
-    }
-    for (const row of activeSheet.sampleRows) {
-      const val = row[colPosition];
-      if (typeof val === "string" && val.trim().length > 0) {
-        return val.trim();
+    if (colPosition !== -1) {
+      for (const row of activeSheet.sampleRows) {
+        const val = row[colPosition];
+        if (typeof val === "string" && val.trim().length > 0) {
+          sampleUrl = val.trim();
+          break;
+        }
       }
     }
-    return "";
-  }, [activeSheet, urlColIndex]);
+  }
 
   // Handlers for file upload & sheet change
   const handleFileLoaded = (
@@ -170,13 +170,23 @@ export default function Home() {
     file &&
       selectedSheet &&
       urlColIndex !== null &&
-      selectors.length > 0 &&
+      fields.length > 0 &&
+      fields.every(
+        (f) =>
+          f.selectors.length > 0 &&
+          (f.targetColumn.mode !== "new" || Boolean(f.targetColumn.colName?.trim()))
+      ) &&
       !isRunning
   );
 
   // SSE Crawl Execution
   const handleStartCrawl = async () => {
-    if (!canStart || !file) return;
+    if (!canStart || !file || urlColIndex === null) return;
+    if (fields.length === 0) return;
+    for (const f of fields) {
+      if (f.selectors.length === 0) return;
+      if (f.targetColumn.mode === "new" && !f.targetColumn.colName?.trim()) return;
+    }
 
     setIsRunning(true);
     setProgressPercent(0);
@@ -196,8 +206,7 @@ export default function Home() {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("urlColIndex", String(urlColIndex));
-      formData.append("targetColumnConfig", JSON.stringify(targetConfig));
-      formData.append("selectors", JSON.stringify(selectors));
+      formData.append("fields", JSON.stringify(fields));
       formData.append("sheetName", selectedSheet);
       formData.append("rowRange", JSON.stringify(rowRange));
 
@@ -298,6 +307,7 @@ export default function Home() {
                   status: data.status,
                   matchedSelector: data.matchedSelector,
                   text: data.text,
+                  fieldResults: data.fieldResults,
                   error: data.error,
                 },
               ]);
@@ -430,10 +440,8 @@ export default function Home() {
             totalRows={activeRowCount}
             urlColIndex={urlColIndex}
             onUrlColChange={setUrlColIndex}
-            selectors={selectors}
-            onSelectorsChange={setSelectors}
-            targetConfig={targetConfig}
-            onTargetConfigChange={setTargetConfig}
+            fields={fields}
+            onFieldsChange={setFields}
             rowRange={rowRange}
             onRowRangeChange={handleRowRangeChange}
             onTestRequested={() => setIsTestModalOpen(true)}
@@ -465,7 +473,7 @@ export default function Home() {
         isOpen={isTestModalOpen}
         onClose={() => setIsTestModalOpen(false)}
         sampleUrl={sampleUrl}
-        selectors={selectors}
+        fields={fields}
       />
     </div>
   );

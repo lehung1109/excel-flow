@@ -35,6 +35,8 @@ export interface SelectorConfigProps {
   rowRange: { startRow: number; endRow: number };
   onRowRangeChange: (range: { startRow: number; endRow: number }) => void;
   onTestRequested: () => void;
+  initialSaveModalOpen?: boolean;
+  initialModalError?: string | null;
 }
 
 export function createDefaultField(index: number): ExtractionFieldConfig {
@@ -63,6 +65,8 @@ export default function SelectorConfig({
   rowRange,
   onRowRangeChange,
   onTestRequested,
+  initialSaveModalOpen = false,
+  initialModalError = null,
 }: SelectorConfigProps) {
   // Internal fallback state if uncontrolled
   const [internalFields, setInternalFields] = useState<ExtractionFieldConfig[]>(() => {
@@ -100,7 +104,7 @@ export default function SelectorConfig({
   const [savedConfigs, setSavedConfigs] = useState<SavedConfigRecord[]>([]);
   const [isLoadingConfigs, setIsLoadingConfigs] = useState(false);
   const [selectedConfigId, setSelectedConfigId] = useState<number | "">("");
-  const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
+  const [isSaveModalOpen, setIsSaveModalOpen] = useState(Boolean(initialSaveModalOpen));
   const [saveName, setSaveName] = useState("");
   const [saveDescription, setSaveDescription] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -109,6 +113,7 @@ export default function SelectorConfig({
     type: "success" | "error";
     text: string;
   } | null>(null);
+  const [modalError, setModalError] = useState<string | null>(initialModalError || null);
 
   // Per-field input state for adding selectors
   const [fieldInputs, setFieldInputs] = useState<Record<string, string>>({});
@@ -210,19 +215,14 @@ export default function SelectorConfig({
 
   async function handleSaveConfigSubmit(e?: React.FormEvent) {
     if (e) e.preventDefault();
+    setModalError(null);
     const trimmedName = saveName.trim();
     if (!trimmedName) {
-      setStatusMessage({
-        type: "error",
-        text: "Vui lòng nhập tên cấu hình.",
-      });
+      setModalError("Vui lòng nhập tên cấu hình.");
       return;
     }
     if (currentFields.length === 0) {
-      setStatusMessage({
-        type: "error",
-        text: "Cấu hình phải có ít nhất 1 trường bóc tách.",
-      });
+      setModalError("Cấu hình phải có ít nhất 1 trường bóc tách.");
       return;
     }
 
@@ -242,6 +242,7 @@ export default function SelectorConfig({
         setIsSaveModalOpen(false);
         setSaveName("");
         setSaveDescription("");
+        setModalError(null);
         await fetchConfigs();
         setSelectedConfigId(data.config.id);
         setStatusMessage({
@@ -250,14 +251,11 @@ export default function SelectorConfig({
         });
         setTimeout(() => setStatusMessage(null), 3500);
       } else {
-        setStatusMessage({
-          type: "error",
-          text: data.error || "Lỗi khi lưu cấu hình.",
-        });
+        setModalError(data.error || "Lỗi khi lưu cấu hình.");
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Lỗi kết nối cơ sở dữ liệu.";
-      setStatusMessage({ type: "error", text: msg });
+      setModalError(msg);
     } finally {
       setIsSaving(false);
     }
@@ -406,7 +404,10 @@ export default function SelectorConfig({
 
           <button
             type="button"
-            onClick={() => setIsSaveModalOpen(true)}
+            onClick={() => {
+              setModalError(null);
+              setIsSaveModalOpen(true);
+            }}
             className="px-3 py-1.5 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-lg text-xs font-semibold hover:bg-indigo-100 flex items-center gap-1.5 transition cursor-pointer"
           >
             <BookmarkPlus className="w-3.5 h-3.5 text-indigo-600" />
@@ -772,6 +773,16 @@ export default function SelectorConfig({
               Lưu cấu hình gồm <strong>{currentFields.length} trường</strong> bóc tách vào Neon
               PostgreSQL để tái sử dụng nhanh chóng bất kỳ lúc nào.
             </p>
+
+            {modalError && (
+              <div
+                role="alert"
+                className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-xs flex items-center gap-2"
+              >
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{modalError}</span>
+              </div>
+            )}
 
             <form onSubmit={handleSaveConfigSubmit} className="space-y-3">
               <div>

@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
   const rawFields = formData.get("fields");
   const isMultiField = typeof rawFields === "string" && rawFields.trim().length > 0;
 
-  let fields: ExtractionFieldConfig[] = [];
+  const fields: ExtractionFieldConfig[] = [];
   let legacyTargetColumnConfig: TargetColumnConfig | null = null;
   let legacyCleanedSelectors: string[] = [];
 
