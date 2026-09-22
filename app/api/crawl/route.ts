@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import pLimit from "p-limit";
-import { enrichExcelBuffer } from "@/lib/excel-service";
-import { scrapeHybrid } from "@/lib/scraper";
+import { enrichExcelBuffer, enrichExcelBufferMultiField } from "@/lib/excel-service";
+import { scrapeHybrid, scrapeMultiField } from "@/lib/scraper";
 import { saveTempFile } from "@/lib/temp-store";
 import { calculateETA, normalizeUrl } from "@/lib/url-utils";
-import type { TargetColumnConfig } from "@/types/crawler";
+import type { ExtractionFieldConfig, FieldCrawlResult, TargetColumnConfig } from "@/types/crawler";
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
@@ -73,96 +73,198 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // 3. Validate targetColumnConfig
-  const rawTargetCol = formData.get("targetColumnConfig");
-  if (!rawTargetCol || typeof rawTargetCol !== "string") {
-    return NextResponse.json(
-      { success: false, error: "Cấu hình cột đích bị thiếu." },
-      { status: 400 }
-    );
-  }
-  let targetColumnConfig: TargetColumnConfig;
-  try {
-    targetColumnConfig = JSON.parse(rawTargetCol);
-  } catch {
-    return NextResponse.json(
-      { success: false, error: "Cấu hình cột đích JSON không hợp lệ." },
-      { status: 400 }
-    );
-  }
+  // 3. Check for multi-field configuration vs legacy single-field
+  const rawFields = formData.get("fields");
+  const isMultiField = typeof rawFields === "string" && rawFields.trim().length > 0;
 
-  if (!targetColumnConfig || typeof targetColumnConfig !== "object") {
-    return NextResponse.json(
-      { success: false, error: "Cấu hình cột đích không hợp lệ." },
-      { status: 400 }
-    );
-  }
+  let fields: ExtractionFieldConfig[] = [];
+  let legacyTargetColumnConfig: TargetColumnConfig | null = null;
+  let legacyCleanedSelectors: string[] = [];
 
-  if (targetColumnConfig.mode === "existing") {
-    if (
-      typeof targetColumnConfig.colIndex !== "number" ||
-      isNaN(targetColumnConfig.colIndex) ||
-      targetColumnConfig.colIndex < 1
-    ) {
+  if (isMultiField) {
+    let parsedFields: unknown;
+    try {
+      parsedFields = JSON.parse(rawFields as string);
+    } catch {
       return NextResponse.json(
-        { success: false, error: "Cột đích (existing) yêu cầu colIndex >= 1." },
+        { success: false, error: "Dữ liệu fields JSON không hợp lệ." },
         { status: 400 }
       );
     }
-  } else if (targetColumnConfig.mode === "new") {
-    if (
-      typeof targetColumnConfig.colName !== "string" ||
-      targetColumnConfig.colName.trim().length === 0
-    ) {
+
+    if (!Array.isArray(parsedFields) || parsedFields.length === 0) {
       return NextResponse.json(
-        { success: false, error: "Cột đích (new) yêu cầu colName không rỗng." },
+        { success: false, error: "Danh sách fields phải là mảng không rỗng." },
         { status: 400 }
       );
+    }
+
+    for (const f of parsedFields) {
+      if (!f || typeof f !== "object") {
+        return NextResponse.json(
+          { success: false, error: "Cấu hình field không hợp lệ." },
+          { status: 400 }
+        );
+      }
+
+      const fId = String((f as { id?: unknown }).id || "").trim();
+      const fName = String((f as { name?: unknown }).name || fId).trim();
+      if (!fId) {
+        return NextResponse.json(
+          { success: false, error: "Mỗi field cần có trường 'id' hợp lệ." },
+          { status: 400 }
+        );
+      }
+
+      const rawSels = (f as { selectors?: unknown }).selectors;
+      const cleaned = Array.isArray(rawSels)
+        ? rawSels
+            .filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+            .map((s) => s.trim())
+        : [];
+
+      if (cleaned.length === 0) {
+        return NextResponse.json(
+          { success: false, error: `Field '${fName || fId}' cần ít nhất một selector hợp lệ.` },
+          { status: 400 }
+        );
+      }
+
+      const targetCol = (f as { targetColumn?: unknown }).targetColumn;
+      if (!targetCol || typeof targetCol !== "object") {
+        return NextResponse.json(
+          { success: false, error: `Cấu hình cột đích của field '${fName}' không hợp lệ.` },
+          { status: 400 }
+        );
+      }
+
+      const mode = (targetCol as { mode?: unknown }).mode;
+      let validTargetCol: TargetColumnConfig;
+      if (mode === "existing") {
+        const colIdx = (targetCol as { colIndex?: unknown }).colIndex;
+        if (typeof colIdx !== "number" || isNaN(colIdx) || colIdx < 1) {
+          return NextResponse.json(
+            { success: false, error: `Field '${fName}': Cột đích (existing) yêu cầu colIndex >= 1.` },
+            { status: 400 }
+          );
+        }
+        validTargetCol = { mode: "existing", colIndex: colIdx };
+      } else if (mode === "new") {
+        const colNm = (targetCol as { colName?: unknown }).colName;
+        if (typeof colNm !== "string" || colNm.trim().length === 0) {
+          return NextResponse.json(
+            { success: false, error: `Field '${fName}': Cột đích (new) yêu cầu colName không rỗng.` },
+            { status: 400 }
+          );
+        }
+        validTargetCol = { mode: "new", colName: colNm.trim() };
+      } else {
+        return NextResponse.json(
+          { success: false, error: `Field '${fName}': Chế độ cột đích không hợp lệ (phải là 'existing' hoặc 'new').` },
+          { status: 400 }
+        );
+      }
+
+      fields.push({
+        id: fId,
+        name: fName,
+        selectors: cleaned,
+        targetColumn: validTargetCol,
+      });
     }
   } else {
-    return NextResponse.json(
-      { success: false, error: "Chế độ cột đích không hợp lệ (phải là 'existing' hoặc 'new')." },
-      { status: 400 }
-    );
+    // Validate legacy targetColumnConfig
+    const rawTargetCol = formData.get("targetColumnConfig");
+    if (!rawTargetCol || typeof rawTargetCol !== "string") {
+      return NextResponse.json(
+        { success: false, error: "Cấu hình cột đích bị thiếu." },
+        { status: 400 }
+      );
+    }
+    let targetColumnConfig: TargetColumnConfig;
+    try {
+      targetColumnConfig = JSON.parse(rawTargetCol);
+    } catch {
+      return NextResponse.json(
+        { success: false, error: "Cấu hình cột đích JSON không hợp lệ." },
+        { status: 400 }
+      );
+    }
+
+    if (!targetColumnConfig || typeof targetColumnConfig !== "object") {
+      return NextResponse.json(
+        { success: false, error: "Cấu hình cột đích không hợp lệ." },
+        { status: 400 }
+      );
+    }
+
+    if (targetColumnConfig.mode === "existing") {
+      if (
+        typeof targetColumnConfig.colIndex !== "number" ||
+        isNaN(targetColumnConfig.colIndex) ||
+        targetColumnConfig.colIndex < 1
+      ) {
+        return NextResponse.json(
+          { success: false, error: "Cột đích (existing) yêu cầu colIndex >= 1." },
+          { status: 400 }
+        );
+      }
+    } else if (targetColumnConfig.mode === "new") {
+      if (
+        typeof targetColumnConfig.colName !== "string" ||
+        targetColumnConfig.colName.trim().length === 0
+      ) {
+        return NextResponse.json(
+          { success: false, error: "Cột đích (new) yêu cầu colName không rỗng." },
+          { status: 400 }
+        );
+      }
+    } else {
+      return NextResponse.json(
+        { success: false, error: "Chế độ cột đích không hợp lệ (phải là 'existing' hoặc 'new')." },
+        { status: 400 }
+      );
+    }
+    legacyTargetColumnConfig = targetColumnConfig;
+
+    // Validate legacy selectors
+    const rawSelectors = formData.get("selectors");
+    if (!rawSelectors || typeof rawSelectors !== "string") {
+      return NextResponse.json(
+        { success: false, error: "Danh sách CSS selector bị thiếu." },
+        { status: 400 }
+      );
+    }
+    let selectors: unknown;
+    try {
+      selectors = JSON.parse(rawSelectors);
+    } catch {
+      return NextResponse.json(
+        { success: false, error: "Danh sách CSS selector JSON không hợp lệ." },
+        { status: 400 }
+      );
+    }
+
+    if (!Array.isArray(selectors)) {
+      return NextResponse.json(
+        { success: false, error: "Danh sách CSS selector phải là mảng." },
+        { status: 400 }
+      );
+    }
+
+    legacyCleanedSelectors = selectors
+      .filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+      .map((s) => s.trim());
+
+    if (legacyCleanedSelectors.length === 0) {
+      return NextResponse.json(
+        { success: false, error: "Cần ít nhất một CSS selector hợp lệ." },
+        { status: 400 }
+      );
+    }
   }
 
-  // 4. Validate selectors
-  const rawSelectors = formData.get("selectors");
-  if (!rawSelectors || typeof rawSelectors !== "string") {
-    return NextResponse.json(
-      { success: false, error: "Danh sách CSS selector bị thiếu." },
-      { status: 400 }
-    );
-  }
-  let selectors: unknown;
-  try {
-    selectors = JSON.parse(rawSelectors);
-  } catch {
-    return NextResponse.json(
-      { success: false, error: "Danh sách CSS selector JSON không hợp lệ." },
-      { status: 400 }
-    );
-  }
-
-  if (!Array.isArray(selectors)) {
-    return NextResponse.json(
-      { success: false, error: "Danh sách CSS selector phải là mảng." },
-      { status: 400 }
-    );
-  }
-
-  const cleanedSelectors = selectors
-    .filter((s): s is string => typeof s === "string" && s.trim().length > 0)
-    .map((s) => s.trim());
-
-  if (cleanedSelectors.length === 0) {
-    return NextResponse.json(
-      { success: false, error: "Cần ít nhất một CSS selector hợp lệ." },
-      { status: 400 }
-    );
-  }
-
-  // 5. Parse optional sheetName and rowRange
+  // 4. Parse optional sheetName and rowRange
   const rawSheetName = formData.get("sheetName");
   const sheetName =
     typeof rawSheetName === "string" && rawSheetName.trim().length > 0
@@ -182,7 +284,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // 6. Inspect Excel workbook
+  // 5. Inspect Excel workbook
   let originalBuffer: Buffer;
   try {
     const arrayBuffer = await (file as Blob).arrayBuffer();
@@ -212,7 +314,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // 7. Extract target rows
+  // 6. Extract target rows
   const minRow = 2;
   const maxRow = worksheet.rowCount;
 
@@ -246,7 +348,7 @@ export async function POST(req: NextRequest) {
   const totalRows = tasks.length;
   const encoder = new TextEncoder();
 
-  // 8. Create SSE Stream
+  // 7. Create SSE Stream
   const stream = new ReadableStream({
     async start(controller) {
       function sendEvent(name: string, data: unknown) {
@@ -266,132 +368,299 @@ export async function POST(req: NextRequest) {
       let failedCount = 0;
       let skippedCount = 0;
 
-      const rowResults = new Map<number, string>();
       const limit = pLimit(3);
 
       try {
-        const promises = tasks.map((task) =>
-          limit(async () => {
-            if (req.signal.aborted) {
-              return;
-            }
+        if (isMultiField) {
+          const rowResults = new Map<number, Record<string, string>>();
 
-            const rawStr =
-              typeof task.rawUrlValue === "string"
-                ? task.rawUrlValue
-                : task.rawUrlValue !== null && task.rawUrlValue !== undefined
-                ? String(task.rawUrlValue)
-                : "";
+          const promises = tasks.map((task) =>
+            limit(async () => {
+              if (req.signal.aborted) {
+                return;
+              }
 
-            const validUrl = normalizeUrl(task.rawUrlValue);
+              const rawStr =
+                typeof task.rawUrlValue === "string"
+                  ? task.rawUrlValue
+                  : task.rawUrlValue !== null && task.rawUrlValue !== undefined
+                  ? String(task.rawUrlValue)
+                  : "";
 
-            if (!validUrl) {
-              skippedCount++;
-              processedCount++;
-              const progressPercent =
-                totalRows > 0 ? Math.round((processedCount / totalRows) * 100) : 100;
-              const etaSeconds = calculateETA(startTime, processedCount, totalRows);
-              sendEvent("row_progress", {
-                rowIndex: task.rowIndex,
-                url: rawStr,
-                status: "skipped",
-                error: "URL trống hoặc không hợp lệ",
-                progressPercent,
-                processedCount,
-                totalCount: totalRows,
-                etaSeconds,
-              });
-              return;
-            }
+              const validUrl = normalizeUrl(task.rawUrlValue);
 
-            try {
-              const match = await scrapeHybrid(validUrl, cleanedSelectors);
-              processedCount++;
-              const progressPercent =
-                totalRows > 0 ? Math.round((processedCount / totalRows) * 100) : 100;
-              const etaSeconds = calculateETA(startTime, processedCount, totalRows);
+              if (!validUrl) {
+                skippedCount++;
+                processedCount++;
+                const progressPercent =
+                  totalRows > 0 ? Math.round((processedCount / totalRows) * 100) : 100;
+                const etaSeconds = calculateETA(startTime, processedCount, totalRows);
 
-              if (match && match.text) {
-                succeededCount++;
-                rowResults.set(task.rowIndex, match.text);
+                const fieldResults: Record<string, FieldCrawlResult> = {};
+                for (const f of fields) {
+                  fieldResults[f.id] = { text: "", error: "URL trống hoặc không hợp lệ" };
+                }
+
                 sendEvent("row_progress", {
                   rowIndex: task.rowIndex,
-                  url: validUrl,
-                  status: "success",
-                  matchedSelector: match.selector,
-                  text: match.text,
+                  url: rawStr,
+                  status: "skipped",
+                  fieldResults,
+                  error: "URL trống hoặc không hợp lệ",
                   progressPercent,
                   processedCount,
                   totalCount: totalRows,
                   etaSeconds,
                 });
-              } else {
+                return;
+              }
+
+              try {
+                const scrapeResult = await scrapeMultiField(
+                  validUrl,
+                  fields.map((f) => ({ id: f.id, selectors: f.selectors }))
+                );
+                processedCount++;
+                const progressPercent =
+                  totalRows > 0 ? Math.round((processedCount / totalRows) * 100) : 100;
+                const etaSeconds = calculateETA(startTime, processedCount, totalRows);
+
+                const fieldResults: Record<string, FieldCrawlResult> = {};
+                const extractedRowTexts: Record<string, string> = {};
+                let hasMatch = false;
+
+                for (const f of fields) {
+                  const match = scrapeResult[f.id];
+                  if (match && match.text) {
+                    hasMatch = true;
+                    fieldResults[f.id] = {
+                      text: match.text,
+                      matchedSelector: match.matchedSelector,
+                    };
+                    extractedRowTexts[f.id] = match.text;
+                  } else {
+                    fieldResults[f.id] = {
+                      text: "",
+                      error: "Không tìm thấy selector nào khớp",
+                    };
+                  }
+                }
+
+                if (hasMatch) {
+                  succeededCount++;
+                  rowResults.set(task.rowIndex, extractedRowTexts);
+                  sendEvent("row_progress", {
+                    rowIndex: task.rowIndex,
+                    url: validUrl,
+                    status: "success",
+                    fieldResults,
+                    text: Object.values(fieldResults).find((r) => r.text)?.text,
+                    matchedSelector: Object.values(fieldResults).find((r) => r.matchedSelector)?.matchedSelector,
+                    progressPercent,
+                    processedCount,
+                    totalCount: totalRows,
+                    etaSeconds,
+                  });
+                } else {
+                  failedCount++;
+                  sendEvent("row_progress", {
+                    rowIndex: task.rowIndex,
+                    url: validUrl,
+                    status: "failed",
+                    fieldResults,
+                    error: "Không tìm thấy selector nào khớp",
+                    progressPercent,
+                    processedCount,
+                    totalCount: totalRows,
+                    etaSeconds,
+                  });
+                }
+              } catch (crawlErr: unknown) {
+                processedCount++;
                 failedCount++;
+                const progressPercent =
+                  totalRows > 0 ? Math.round((processedCount / totalRows) * 100) : 100;
+                const etaSeconds = calculateETA(startTime, processedCount, totalRows);
+                const errMsg =
+                  crawlErr instanceof Error ? crawlErr.message : "Lỗi cào dữ liệu";
+
+                const fieldResults: Record<string, FieldCrawlResult> = {};
+                for (const f of fields) {
+                  fieldResults[f.id] = { text: "", error: errMsg };
+                }
+
                 sendEvent("row_progress", {
                   rowIndex: task.rowIndex,
                   url: validUrl,
                   status: "failed",
-                  error: "Không tìm thấy selector nào khớp",
+                  fieldResults,
+                  error: errMsg,
                   progressPercent,
                   processedCount,
                   totalCount: totalRows,
                   etaSeconds,
                 });
               }
-            } catch (crawlErr: unknown) {
-              processedCount++;
-              failedCount++;
-              const progressPercent =
-                totalRows > 0 ? Math.round((processedCount / totalRows) * 100) : 100;
-              const etaSeconds = calculateETA(startTime, processedCount, totalRows);
-              const errMsg =
-                crawlErr instanceof Error ? crawlErr.message : "Lỗi cào dữ liệu";
-              sendEvent("row_progress", {
-                rowIndex: task.rowIndex,
-                url: validUrl,
-                status: "failed",
-                error: errMsg,
-                progressPercent,
-                processedCount,
-                totalCount: totalRows,
-                etaSeconds,
-              });
-            }
-          })
-        );
+            })
+          );
 
-        await Promise.all(promises);
+          await Promise.all(promises);
 
-        if (req.signal.aborted) {
-          return;
+          if (req.signal.aborted) {
+            return;
+          }
+
+          const enrichedBuffer = await enrichExcelBufferMultiField({
+            buffer: originalBuffer,
+            sheetName,
+            fields,
+            rowResults,
+          });
+
+          const fileName = (file as File).name || "excel.xlsx";
+          const originalName = fileName.replace(/\.[^/.]+$/, "") || "excel";
+          const outputFilename = `${originalName}_updated.xlsx`;
+          const downloadId = saveTempFile(enrichedBuffer, outputFilename);
+
+          sendEvent("complete", {
+            success: true,
+            downloadId,
+            filename: outputFilename,
+            fileBase64: enrichedBuffer.toString("base64"),
+            summary: {
+              total: totalRows,
+              succeeded: succeededCount,
+              failed: failedCount,
+              skipped: skippedCount,
+              durationMs: Date.now() - startTime,
+            },
+          });
+        } else {
+          // Legacy single-field crawl flow
+          const rowResults = new Map<number, string>();
+
+          const promises = tasks.map((task) =>
+            limit(async () => {
+              if (req.signal.aborted) {
+                return;
+              }
+
+              const rawStr =
+                typeof task.rawUrlValue === "string"
+                  ? task.rawUrlValue
+                  : task.rawUrlValue !== null && task.rawUrlValue !== undefined
+                  ? String(task.rawUrlValue)
+                  : "";
+
+              const validUrl = normalizeUrl(task.rawUrlValue);
+
+              if (!validUrl) {
+                skippedCount++;
+                processedCount++;
+                const progressPercent =
+                  totalRows > 0 ? Math.round((processedCount / totalRows) * 100) : 100;
+                const etaSeconds = calculateETA(startTime, processedCount, totalRows);
+                sendEvent("row_progress", {
+                  rowIndex: task.rowIndex,
+                  url: rawStr,
+                  status: "skipped",
+                  error: "URL trống hoặc không hợp lệ",
+                  progressPercent,
+                  processedCount,
+                  totalCount: totalRows,
+                  etaSeconds,
+                });
+                return;
+              }
+
+              try {
+                const match = await scrapeHybrid(validUrl, legacyCleanedSelectors);
+                processedCount++;
+                const progressPercent =
+                  totalRows > 0 ? Math.round((processedCount / totalRows) * 100) : 100;
+                const etaSeconds = calculateETA(startTime, processedCount, totalRows);
+
+                if (match && match.text) {
+                  succeededCount++;
+                  rowResults.set(task.rowIndex, match.text);
+                  sendEvent("row_progress", {
+                    rowIndex: task.rowIndex,
+                    url: validUrl,
+                    status: "success",
+                    matchedSelector: match.selector,
+                    text: match.text,
+                    progressPercent,
+                    processedCount,
+                    totalCount: totalRows,
+                    etaSeconds,
+                  });
+                } else {
+                  failedCount++;
+                  sendEvent("row_progress", {
+                    rowIndex: task.rowIndex,
+                    url: validUrl,
+                    status: "failed",
+                    error: "Không tìm thấy selector nào khớp",
+                    progressPercent,
+                    processedCount,
+                    totalCount: totalRows,
+                    etaSeconds,
+                  });
+                }
+              } catch (crawlErr: unknown) {
+                processedCount++;
+                failedCount++;
+                const progressPercent =
+                  totalRows > 0 ? Math.round((processedCount / totalRows) * 100) : 100;
+                const etaSeconds = calculateETA(startTime, processedCount, totalRows);
+                const errMsg =
+                  crawlErr instanceof Error ? crawlErr.message : "Lỗi cào dữ liệu";
+                sendEvent("row_progress", {
+                  rowIndex: task.rowIndex,
+                  url: validUrl,
+                  status: "failed",
+                  error: errMsg,
+                  progressPercent,
+                  processedCount,
+                  totalCount: totalRows,
+                  etaSeconds,
+                });
+              }
+            })
+          );
+
+          await Promise.all(promises);
+
+          if (req.signal.aborted) {
+            return;
+          }
+
+          const enrichedBuffer = await enrichExcelBuffer({
+            buffer: originalBuffer,
+            sheetName,
+            targetColumn: legacyTargetColumnConfig!,
+            rowResults,
+          });
+
+          const fileName = (file as File).name || "excel.xlsx";
+          const originalName = fileName.replace(/\.[^/.]+$/, "") || "excel";
+          const outputFilename = `${originalName}_updated.xlsx`;
+          const downloadId = saveTempFile(enrichedBuffer, outputFilename);
+
+          sendEvent("complete", {
+            success: true,
+            downloadId,
+            filename: outputFilename,
+            fileBase64: enrichedBuffer.toString("base64"),
+            summary: {
+              total: totalRows,
+              succeeded: succeededCount,
+              failed: failedCount,
+              skipped: skippedCount,
+              durationMs: Date.now() - startTime,
+            },
+          });
         }
-
-        // Enrich Excel buffer
-        const enrichedBuffer = await enrichExcelBuffer({
-          buffer: originalBuffer,
-          sheetName,
-          targetColumn: targetColumnConfig,
-          rowResults,
-        });
-
-        const fileName = (file as File).name || "excel.xlsx";
-        const originalName = fileName.replace(/\.[^/.]+$/, "") || "excel";
-        const outputFilename = `${originalName}_updated.xlsx`;
-        const downloadId = saveTempFile(enrichedBuffer, outputFilename);
-
-        sendEvent("complete", {
-          success: true,
-          downloadId,
-          filename: outputFilename,
-          fileBase64: enrichedBuffer.toString("base64"),
-          summary: {
-            total: totalRows,
-            succeeded: succeededCount,
-            failed: failedCount,
-            skipped: skippedCount,
-            durationMs: Date.now() - startTime,
-          },
-        });
       } catch (err: unknown) {
         const message =
           err instanceof Error ? err.message : "Lỗi hệ thống khi xử lý cào dữ liệu.";

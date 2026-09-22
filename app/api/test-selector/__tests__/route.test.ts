@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { NextRequest } from "next/server";
 import * as scraper from "@/lib/scraper";
+import type { ExtractionFieldConfig } from "@/types/crawler";
 import { POST } from "../route";
 
 describe("POST /api/test-selector", () => {
@@ -213,5 +214,115 @@ describe("POST /api/test-selector", () => {
     } finally {
       server.stop(true);
     }
+  });
+
+  describe("Multi-Field Support", () => {
+    it("returns 400 when fields array is empty", async () => {
+      const req = new NextRequest("http://localhost:3000/api/test-selector", {
+        method: "POST",
+        body: JSON.stringify({
+          url: "https://example.com",
+          fields: [],
+        }),
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const response = await POST(req);
+      expect(response.status).toBe(400);
+
+      const json = await response.json();
+      expect(json.success).toBe(false);
+      expect(json.error).toBeDefined();
+    });
+
+    it("returns 400 when fields is provided but url is invalid", async () => {
+      const req = new NextRequest("http://localhost:3000/api/test-selector", {
+        method: "POST",
+        body: JSON.stringify({
+          url: "invalid-url",
+          fields: [
+            {
+              id: "f1",
+              name: "Title",
+              selectors: ["h1"],
+              targetColumn: { mode: "new", colName: "Title" },
+            },
+          ],
+        }),
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const response = await POST(req);
+      expect(response.status).toBe(400);
+
+      const json = await response.json();
+      expect(json.success).toBe(false);
+      expect(json.error).toContain("URL");
+    });
+
+    it("tests multiple fields concurrently against a URL when fields array is provided", async () => {
+      const scrapeSpy = spyOn(scraper, "scrapeMultiField").mockResolvedValue({
+        title_field: { text: "Sample Product Title", matchedSelector: "h1.product-title" },
+        price_field: { text: "$49.99", matchedSelector: ".price" },
+        desc_field: null,
+      });
+
+      try {
+        const fields: ExtractionFieldConfig[] = [
+          {
+            id: "title_field",
+            name: "Title",
+            selectors: ["h1.product-title", "h1"],
+            targetColumn: { mode: "new", colName: "Product Title" },
+          },
+          {
+            id: "price_field",
+            name: "Price",
+            selectors: [".price"],
+            targetColumn: { mode: "new", colName: "Price" },
+          },
+          {
+            id: "desc_field",
+            name: "Description",
+            selectors: [".missing-desc"],
+            targetColumn: { mode: "new", colName: "Desc" },
+          },
+        ];
+
+        const req = new NextRequest("http://localhost:3000/api/test-selector", {
+          method: "POST",
+          body: JSON.stringify({
+            url: "example.com/item/456",
+            fields,
+          }),
+          headers: { "Content-Type": "application/json" },
+        });
+
+        const response = await POST(req);
+        expect(response.status).toBe(200);
+
+        const json = await response.json();
+        expect(json.success).toBe(true);
+        expect(json.results).toBeDefined();
+        expect(json.results.title_field).toEqual({
+          text: "Sample Product Title",
+          matchedSelector: "h1.product-title",
+        });
+        expect(json.results.price_field).toEqual({
+          text: "$49.99",
+          matchedSelector: ".price",
+        });
+        expect(json.results.desc_field.text).toBe("");
+        expect(json.results.desc_field.error).toBeDefined();
+
+        expect(scrapeSpy).toHaveBeenCalledWith("https://example.com/item/456", [
+          { id: "title_field", selectors: ["h1.product-title", "h1"] },
+          { id: "price_field", selectors: [".price"] },
+          { id: "desc_field", selectors: [".missing-desc"] },
+        ]);
+      } finally {
+        scrapeSpy.mockRestore();
+      }
+    });
   });
 });

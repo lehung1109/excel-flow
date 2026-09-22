@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { normalizeUrl } from "@/lib/url-utils";
-import { scrapeHybrid } from "@/lib/scraper";
+import { scrapeHybrid, scrapeMultiField } from "@/lib/scraper";
+import type { FieldCrawlResult } from "@/types/crawler";
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
@@ -17,8 +18,78 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const typedBody = body as { url?: unknown; selectors?: unknown } | null | undefined;
+    const typedBody = body as {
+      url?: unknown;
+      selectors?: unknown;
+      fields?: unknown;
+    } | null | undefined;
 
+    // Multi-field mode if fields is provided
+    if (typedBody?.fields !== undefined) {
+      const rawFields = typedBody.fields;
+      if (!Array.isArray(rawFields) || rawFields.length === 0) {
+        return NextResponse.json(
+          { success: false, error: "Danh sách field phải là một mảng không rỗng." },
+          { status: 400 }
+        );
+      }
+
+      const validUrl = normalizeUrl(typedBody?.url);
+      if (!validUrl) {
+        return NextResponse.json(
+          { success: false, error: "URL không hợp lệ hoặc bị thiếu." },
+          { status: 400 }
+        );
+      }
+
+      const fields: Array<{ id: string; selectors: string[] }> = [];
+      for (const f of rawFields) {
+        if (!f || typeof f !== "object") {
+          return NextResponse.json(
+            { success: false, error: "Cấu hình field không hợp lệ." },
+            { status: 400 }
+          );
+        }
+        const fId = String((f as { id?: unknown }).id || "");
+        const rawSels = (f as { selectors?: unknown }).selectors;
+        const cleaned = Array.isArray(rawSels)
+          ? rawSels
+              .filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+              .map((s) => s.trim())
+          : [];
+
+        if (cleaned.length === 0) {
+          return NextResponse.json(
+            { success: false, error: `Field '${fId || "chưa đặt tên"}' cần ít nhất một selector hợp lệ.` },
+            { status: 400 }
+          );
+        }
+
+        fields.push({ id: fId, selectors: cleaned });
+      }
+
+      const multiResults = await scrapeMultiField(validUrl, fields);
+      const results: Record<string, FieldCrawlResult> = {};
+
+      for (const f of fields) {
+        const match = multiResults[f.id];
+        if (match && match.text) {
+          results[f.id] = {
+            text: match.text,
+            matchedSelector: match.matchedSelector,
+          };
+        } else {
+          results[f.id] = {
+            text: "",
+            error: "Không tìm thấy nội dung nào khớp",
+          };
+        }
+      }
+
+      return NextResponse.json({ success: true, results }, { status: 200 });
+    }
+
+    // Legacy single-field mode
     const rawSelectors = typedBody?.selectors;
     if (!Array.isArray(rawSelectors)) {
       return NextResponse.json(

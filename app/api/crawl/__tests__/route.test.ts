@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import ExcelJS from "exceljs";
 import * as scraper from "@/lib/scraper";
 import { clearTempStore, getTempFile } from "@/lib/temp-store";
+import type { ExtractionFieldConfig } from "@/types/crawler";
 import { POST } from "../route";
 
 function parseSseEvents(raw: string): Array<{ event: string; data: any }> {
@@ -527,6 +528,222 @@ describe("POST /api/crawl", () => {
         expect(rowEvents.map((r) => r.data.rowIndex).sort()).toEqual([3, 4]);
 
         expect(crawledUrls).toEqual(["https://example.com/2", "https://example.com/3"]);
+      } finally {
+        scrapeSpy.mockRestore();
+      }
+    });
+  });
+
+  describe("Multi-Field Crawling", () => {
+    it("returns 400 when fields JSON is invalid", async () => {
+      const file = await createTestExcelFile();
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("urlColIndex", "3");
+      fd.append("fields", "not-a-valid-json");
+
+      const res = await POST(
+        new NextRequest("http://localhost:3000/api/crawl", {
+          method: "POST",
+          body: fd,
+        })
+      );
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.success).toBe(false);
+      expect(json.error).toBeDefined();
+    });
+
+    it("returns 400 when fields is empty array", async () => {
+      const file = await createTestExcelFile();
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("urlColIndex", "3");
+      fd.append("fields", JSON.stringify([]));
+
+      const res = await POST(
+        new NextRequest("http://localhost:3000/api/crawl", {
+          method: "POST",
+          body: fd,
+        })
+      );
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.success).toBe(false);
+      expect(json.error).toBeDefined();
+    });
+
+    it("returns 400 when a field in fields has no valid selectors", async () => {
+      const file = await createTestExcelFile();
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("urlColIndex", "3");
+      fd.append(
+        "fields",
+        JSON.stringify([
+          {
+            id: "f1",
+            name: "Title",
+            selectors: ["   ", ""],
+            targetColumn: { mode: "new", colName: "Title" },
+          },
+        ])
+      );
+
+      const res = await POST(
+        new NextRequest("http://localhost:3000/api/crawl", {
+          method: "POST",
+          body: fd,
+        })
+      );
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.success).toBe(false);
+      expect(json.error).toBeDefined();
+    });
+
+    it("returns 400 when a field in fields has invalid targetColumn", async () => {
+      const file = await createTestExcelFile();
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("urlColIndex", "3");
+      fd.append(
+        "fields",
+        JSON.stringify([
+          {
+            id: "f1",
+            name: "Title",
+            selectors: ["h1"],
+            targetColumn: { mode: "unknown_mode" },
+          },
+        ])
+      );
+
+      const res = await POST(
+        new NextRequest("http://localhost:3000/api/crawl", {
+          method: "POST",
+          body: fd,
+        })
+      );
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.success).toBe(false);
+      expect(json.error).toBeDefined();
+    });
+
+    it("crawls multiple fields and enriches Excel with multiple columns via SSE stream", async () => {
+      const file = await createTestExcelFile("Products", [
+        ["ID", "Name", "URL"],
+        [1, "Product 1", "https://example.com/prod-1"],
+        [2, "Product 2", "https://example.com/prod-2"],
+      ]);
+
+      const fields: ExtractionFieldConfig[] = [
+        {
+          id: "f_title",
+          name: "Title",
+          selectors: ["h1.title"],
+          targetColumn: { mode: "new", colName: "Extracted_Title" },
+        },
+        {
+          id: "f_price",
+          name: "Price",
+          selectors: [".price"],
+          targetColumn: { mode: "new", colName: "Extracted_Price" },
+        },
+      ];
+
+      const scrapeSpy = spyOn(scraper, "scrapeMultiField").mockImplementation(async (url) => {
+        if (url.includes("prod-1")) {
+          return {
+            f_title: { text: "Title One", matchedSelector: "h1.title" },
+            f_price: { text: "$10.00", matchedSelector: ".price" },
+          };
+        }
+        if (url.includes("prod-2")) {
+          return {
+            f_title: { text: "Title Two", matchedSelector: "h1.title" },
+            f_price: null,
+          };
+        }
+        return { f_title: null, f_price: null };
+      });
+
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("sheetName", "Products");
+        formData.append("urlColIndex", "3");
+        formData.append("fields", JSON.stringify(fields));
+
+        const req = new NextRequest("http://localhost:3000/api/crawl", {
+          method: "POST",
+          body: formData,
+        });
+
+        const res = await POST(req);
+        expect(res.status).toBe(200);
+
+        expect(res.headers.get("Content-Type")).toContain("text/event-stream");
+        expect(res.headers.get("Cache-Control")).toContain("no-cache");
+
+        const rawBody = await res.text();
+        const events = parseSseEvents(rawBody);
+
+        // Verify start event
+        const startEvent = events.find((e) => e.event === "start");
+        expect(startEvent).toBeDefined();
+        expect(startEvent?.data.totalRows).toBe(2);
+
+        // Verify row_progress events
+        const rowEvents = events.filter((e) => e.event === "row_progress");
+        expect(rowEvents.length).toBe(2);
+
+        const row2 = rowEvents.find((e) => e.data.rowIndex === 2);
+        expect(row2?.data.status).toBe("success");
+        expect(row2?.data.fieldResults).toBeDefined();
+        expect(row2?.data.fieldResults.f_title).toEqual({
+          text: "Title One",
+          matchedSelector: "h1.title",
+        });
+        expect(row2?.data.fieldResults.f_price).toEqual({
+          text: "$10.00",
+          matchedSelector: ".price",
+        });
+
+        const row3 = rowEvents.find((e) => e.data.rowIndex === 3);
+        expect(row3?.data.status).toBe("success");
+        expect(row3?.data.fieldResults.f_title).toEqual({
+          text: "Title Two",
+          matchedSelector: "h1.title",
+        });
+        expect(row3?.data.fieldResults.f_price.text).toBe("");
+        expect(row3?.data.fieldResults.f_price.error).toBeDefined();
+
+        // Verify complete event
+        const completeEvent = events.find((e) => e.event === "complete");
+        expect(completeEvent).toBeDefined();
+        expect(completeEvent?.data.success).toBe(true);
+        expect(completeEvent?.data.downloadId).toBeDefined();
+        expect(completeEvent?.data.summary).toMatchObject({
+          total: 2,
+          succeeded: 2,
+          failed: 0,
+          skipped: 0,
+        });
+
+        // Verify enriched workbook
+        const stored = getTempFile(completeEvent?.data.downloadId);
+        expect(stored).not.toBeNull();
+        const resultWb = new ExcelJS.Workbook();
+        await resultWb.xlsx.load(stored!.buffer as unknown as ExcelJS.Buffer);
+        const resultWs = resultWb.getWorksheet("Products");
+        expect(resultWs).toBeDefined();
+        expect(resultWs?.getRow(1).getCell(4).value).toBe("Extracted_Title");
+        expect(resultWs?.getRow(1).getCell(5).value).toBe("Extracted_Price");
+        expect(resultWs?.getRow(2).getCell(4).value).toBe("Title One");
+        expect(resultWs?.getRow(2).getCell(5).value).toBe("$10.00");
+        expect(resultWs?.getRow(3).getCell(4).value).toBe("Title Two");
       } finally {
         scrapeSpy.mockRestore();
       }
