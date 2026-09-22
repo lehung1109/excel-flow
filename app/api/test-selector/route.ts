@@ -70,6 +70,7 @@ export async function POST(req: NextRequest) {
       { status: 200 }
     );
   } catch (err) {
+    console.error("[POST /api/test-selector] Lỗi:", err);
     const message = err instanceof Error ? err.message : "Đã xảy ra lỗi không xác định.";
     return NextResponse.json(
       { success: false, error: message },

@@ -1,5 +1,5 @@
 import * as cheerio from "cheerio";
-import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
+import type { Browser, BrowserContext, Page } from "playwright";
 import { type SelectorMatch } from "../types/crawler";
 import { sanitizeExtractedText } from "./url-utils";
 
@@ -12,6 +12,10 @@ let pagesScrapedCount = 0;
 const MAX_PAGES_BEFORE_RECYCLE = 100;
 
 async function getBrowser(): Promise<Browser> {
+  if (process.env.VERCEL) {
+    throw new Error("Playwright dynamic browser is not supported in Vercel Serverless environment.");
+  }
+
   if (browserInstance && pagesScrapedCount >= MAX_PAGES_BEFORE_RECYCLE) {
     await closeBrowser();
   }
@@ -21,15 +25,17 @@ async function getBrowser(): Promise<Browser> {
   }
 
   if (!browserPromise) {
-    browserPromise = chromium
-      .launch({
+    browserPromise = (async () => {
+      const { chromium } = await import("playwright");
+      return chromium.launch({
         headless: true,
         args: [
           "--no-sandbox",
           "--disable-setuid-sandbox",
           "--disable-dev-shm-usage",
         ],
-      })
+      });
+    })()
       .then((b) => {
         browserInstance = b;
         pagesScrapedCount = 0;
