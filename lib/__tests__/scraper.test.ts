@@ -1,5 +1,6 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { closeBrowser, scrapeHybrid, scrapeStatic } from "../scraper";
+import { afterAll, beforeAll, describe, expect, it, mock } from "bun:test";
+import * as scraper from "../scraper";
+import { closeBrowser, scrapeHybrid, scrapeMultiField, scrapeStatic } from "../scraper";
 
 describe("scraper", () => {
   let server: ReturnType<typeof Bun.serve>;
@@ -153,6 +154,87 @@ describe("scraper", () => {
     it("can be called safely multiple times even if browser was not launched", async () => {
       await expect(closeBrowser()).resolves.toBeUndefined();
       await expect(closeBrowser()).resolves.toBeUndefined();
+    });
+  });
+
+  describe("scrapeMultiField", () => {
+    it("scrapeMultiField extracts multiple fields from single HTML page concurrently", async () => {
+      const mockHtml = `
+        <html>
+          <body>
+            <h1 class="product-title">Áo Thun Nam Cao Cấp</h1>
+            <div class="product-price">199.000đ</div>
+            <p class="desc">Chất liệu 100% cotton thoáng mát.</p>
+          </body>
+        </html>
+      `;
+      const originalFetch = globalThis.fetch;
+      try {
+        globalThis.fetch = mock(() =>
+          Promise.resolve(new Response(mockHtml, { status: 200 }))
+        ) as any;
+
+        const fields = [
+          { id: "f_title", selectors: ["h1.product-title", "h1"] },
+          { id: "f_price", selectors: [".product-price", ".price"] },
+          { id: "f_desc", selectors: [".desc", "p"] },
+          { id: "f_nonexist", selectors: [".not-found"] },
+        ];
+
+        const results = await scraper.scrapeMultiField("https://shop.example/p1", fields);
+
+        expect(results.f_title?.text).toBe("Áo Thun Nam Cao Cấp");
+        expect(results.f_title?.matchedSelector).toBe("h1.product-title");
+
+        expect(results.f_price?.text).toBe("199.000đ");
+        expect(results.f_price?.matchedSelector).toBe(".product-price");
+
+        expect(results.f_desc?.text).toBe("Chất liệu 100% cotton thoáng mát.");
+
+        expect(results.f_nonexist).toBeNull();
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it("handles static page from local server with multiple selectors and priority", async () => {
+      const fields = [
+        { id: "title", selectors: [".non-existent", ".main-title"] },
+        { id: "price", selectors: [".price"] },
+        { id: "desc", selectors: [".description"] },
+        { id: "missing", selectors: [".does-not-exist"] },
+      ];
+
+      const results = await scrapeMultiField(`${baseUrl}/sample-page`, fields);
+
+      expect(results.title?.text).toBe("Item Title & Details");
+      expect(results.title?.matchedSelector).toBe(".main-title");
+      expect(results.price?.text).toBe("$99.99");
+      expect(results.price?.matchedSelector).toBe(".price");
+      expect(results.desc?.text).toBe("Detailed product description here.");
+      expect(results.desc?.matchedSelector).toBe(".description");
+      expect(results.missing).toBeNull();
+    });
+
+    it("handles invalid selector syntax gracefully", async () => {
+      const fields = [
+        { id: "f1", selectors: [":::invalid-pseudo[[[", ".main-title"] },
+      ];
+
+      const results = await scrapeMultiField(`${baseUrl}/sample-page`, fields);
+      expect(results.f1?.text).toBe("Item Title & Details");
+      expect(results.f1?.matchedSelector).toBe(".main-title");
+    });
+
+    it("returns null for all fields on 404 response", async () => {
+      const fields = [
+        { id: "title", selectors: ["h1"] },
+        { id: "desc", selectors: ["p"] },
+      ];
+
+      const results = await scrapeMultiField(`${baseUrl}/not-found`, fields);
+      expect(results.title).toBeNull();
+      expect(results.desc).toBeNull();
     });
   });
 });

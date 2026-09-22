@@ -189,9 +189,11 @@ async function run() {
     }
     await browser.close();
     process.stdout.write(JSON.stringify(null));
+    process.exit(0);
   } catch {
     if (browser) { try { await browser.close(); } catch {} }
     process.stdout.write(JSON.stringify(null));
+    process.exit(0);
   }
 }
 run();
@@ -200,19 +202,45 @@ run();
     const payload = JSON.stringify({ url, selectors, timeout: timeoutMs });
     const cpName = "child_" + "process";
     const cp = (globalThis as any).require ? (globalThis as any).require(cpName) : await import("node:child_process");
-    const result = cp.spawnSync("node", ["-e", script], {
-      input: payload,
-      encoding: "utf-8",
-      timeout: timeoutMs + 5000,
-    });
 
-    if (result.status === 0 && result.stdout) {
-      const parsed = JSON.parse(result.stdout.trim());
-      if (parsed && typeof parsed === "object" && parsed.text) {
-        return parsed as SelectorMatch;
-      }
-    }
-    return null;
+    return await new Promise((resolve) => {
+      const child = cp.spawn("node", ["-e", script], {
+        stdio: ["pipe", "pipe", "ignore"],
+      });
+
+      let stdout = "";
+      const timer = setTimeout(() => {
+        try {
+          child.kill();
+        } catch {}
+        resolve(null);
+      }, timeoutMs + 4000);
+
+      child.stdout.on("data", (chunk: Buffer) => {
+        stdout += chunk.toString("utf8");
+      });
+
+      child.on("close", (code: number) => {
+        clearTimeout(timer);
+        if (code === 0 && stdout) {
+          try {
+            const parsed = JSON.parse(stdout.trim());
+            if (parsed && typeof parsed === "object" && parsed.text) {
+              return resolve(parsed as SelectorMatch);
+            }
+          } catch {}
+        }
+        resolve(null);
+      });
+
+      child.on("error", () => {
+        clearTimeout(timer);
+        resolve(null);
+      });
+
+      child.stdin.write(payload);
+      child.stdin.end();
+    });
   } catch {
     return null;
   }
@@ -327,4 +355,306 @@ export async function scrapeHybrid(
   }
 
   return scrapeDynamic(url, selectors);
+}
+
+export const scrapeBrowser = scrapeDynamic;
+
+export interface MultiFieldTarget {
+  id: string;
+  selectors: string[];
+}
+
+export interface MultiFieldMatch {
+  text: string;
+  matchedSelector: string;
+}
+
+async function scrapeDynamicMultiViaNodeWorker(
+  url: string,
+  fields: MultiFieldTarget[],
+  timeoutMs: number = 8000
+): Promise<Record<string, MultiFieldMatch | null>> {
+  try {
+    const script = `
+const { chromium } = require("playwright");
+async function run() {
+  const chunks = [];
+  for await (const chunk of process.stdin) chunks.push(chunk);
+  const inputStr = Buffer.concat(chunks).toString("utf8");
+  if (!inputStr) { process.stdout.write(JSON.stringify({})); process.exit(0); }
+  const { url, fields, timeout = 8000 } = JSON.parse(inputStr);
+  const result = {};
+  for (const f of fields) {
+    result[f.id] = null;
+  }
+  let browser;
+  try {
+    browser = await chromium.launch({
+      headless: true,
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+    });
+    const ctx = await browser.newContext({
+      userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+    });
+    const page = await ctx.newPage();
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout });
+    for (const f of fields) {
+      for (const sel of f.selectors) {
+        if (!sel || !sel.trim()) continue;
+        try {
+          const el = await page.$(sel);
+          if (el) {
+            const raw = await el.textContent();
+            if (raw && raw.trim()) {
+              const clean = raw
+                .replace(/&nbsp;/gi, " ")
+                .replace(/&quot;/gi, '"')
+                .replace(/&#39;/gi, "'")
+                .replace(/&lt;/gi, "<")
+                .replace(/&gt;/gi, ">")
+                .replace(/&amp;/gi, "&")
+                .replace(/[\\\\r\\\\n\\\\t]+/g, " ")
+                .replace(/\\\\s{2,}/g, " ")
+                .trim();
+              if (clean) {
+                result[f.id] = { text: clean, matchedSelector: sel };
+                break;
+              }
+            }
+          }
+        } catch {}
+      }
+    }
+    await browser.close();
+    process.stdout.write(JSON.stringify(result));
+    process.exit(0);
+  } catch {
+    if (browser) { try { await browser.close(); } catch {} }
+    process.stdout.write(JSON.stringify(result));
+    process.exit(0);
+  }
+}
+run();
+`;
+
+    const payload = JSON.stringify({ url, fields, timeout: timeoutMs });
+    const cpName = "child_" + "process";
+    const cp = (globalThis as any).require ? (globalThis as any).require(cpName) : await import("node:child_process");
+
+    return await new Promise((resolve) => {
+      const child = cp.spawn("node", ["-e", script], {
+        stdio: ["pipe", "pipe", "ignore"],
+      });
+
+      let stdout = "";
+      const timer = setTimeout(() => {
+        try {
+          child.kill();
+        } catch {}
+        resolve({});
+      }, timeoutMs + 4000);
+
+      child.stdout.on("data", (chunk: Buffer) => {
+        stdout += chunk.toString("utf8");
+      });
+
+      child.on("close", (code: number) => {
+        clearTimeout(timer);
+        if (code === 0 && stdout) {
+          try {
+            const parsed = JSON.parse(stdout.trim());
+            if (parsed && typeof parsed === "object") {
+              return resolve(parsed);
+            }
+          } catch {}
+        }
+        resolve({});
+      });
+
+      child.on("error", () => {
+        clearTimeout(timer);
+        resolve({});
+      });
+
+      child.stdin.write(payload);
+      child.stdin.end();
+    });
+  } catch {
+    return {};
+  }
+}
+
+export async function scrapeBrowserMulti(
+  url: string,
+  fields: MultiFieldTarget[]
+): Promise<Record<string, MultiFieldMatch | null>> {
+  const isBunOnWindows =
+    process.platform === "win32" &&
+    typeof (process as any).versions?.bun === "string";
+
+  if (isBunOnWindows) {
+    return await scrapeDynamicMultiViaNodeWorker(url, fields, 8000);
+  }
+
+  if (process.env.VERCEL) {
+    return {};
+  }
+
+  const result: Record<string, MultiFieldMatch | null> = {};
+  for (const f of fields) {
+    result[f.id] = null;
+  }
+
+  let context: BrowserContext | null = null;
+  let page: Page | null = null;
+
+  try {
+    let launchTimer: ReturnType<typeof setTimeout> | undefined;
+    const launchTimeout = new Promise<never>((_, reject) => {
+      launchTimer = setTimeout(() => reject(new Error("Browser launch timeout")), 10000);
+    });
+
+    const browser = await Promise.race([getBrowser(), launchTimeout]).finally(() => {
+      if (launchTimer) clearTimeout(launchTimer);
+    });
+
+    pagesScrapedCount++;
+
+    context = await browser.newContext({
+      userAgent: DEFAULT_USER_AGENT,
+    });
+    page = await context.newPage();
+
+    await page.goto(url, {
+      waitUntil: "domcontentloaded",
+      timeout: 8000,
+    });
+
+    for (const f of fields) {
+      for (const sel of f.selectors) {
+        if (!sel || !sel.trim()) continue;
+        try {
+          const el = await page.$(sel);
+          if (el) {
+            const rawText = await el.textContent();
+            if (rawText) {
+              const text = sanitizeExtractedText(rawText);
+              if (text) {
+                result[f.id] = { text, matchedSelector: sel };
+                break;
+              }
+            }
+          }
+        } catch {
+          continue;
+        }
+      }
+    }
+
+    return result;
+  } catch {
+    return result;
+  } finally {
+    if (page) {
+      try {
+        await page.close();
+      } catch {}
+    }
+    if (context) {
+      try {
+        await context.close();
+      } catch {}
+    }
+  }
+}
+
+/**
+ * Scrapes multiple fields from a single URL fetch using static Cheerio extraction,
+ * falling back to Playwright dynamic extraction for any fields not matched statically.
+ */
+export async function scrapeMultiField(
+  url: string,
+  fields: MultiFieldTarget[]
+): Promise<Record<string, MultiFieldMatch | null>> {
+  const result: Record<string, MultiFieldMatch | null> = {};
+  for (const f of fields) {
+    result[f.id] = null;
+  }
+
+  if (!fields || fields.length === 0) {
+    return result;
+  }
+
+  // 1. Attempt static scrape with Cheerio first
+  let html = "";
+  let isNotFound = false;
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    try {
+      const res = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          "User-Agent": DEFAULT_USER_AGENT,
+          Accept:
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+          "Accept-Language": "en-US,en;q=0.9",
+        },
+      });
+      if (res.status === 404 || res.status === 410) {
+        isNotFound = true;
+      } else if (res.ok) {
+        html = await res.text();
+      }
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  } catch {
+    // static fetch failed, may try browser
+  }
+
+  if (isNotFound) {
+    return result;
+  }
+
+  if (html) {
+    const $ = cheerio.load(html);
+    for (const f of fields) {
+      for (const sel of f.selectors) {
+        if (!sel || !sel.trim()) continue;
+        try {
+          const el = $(sel).first();
+          if (el.length > 0) {
+            const text = sanitizeExtractedText(el.text());
+            if (text.length > 0) {
+              result[f.id] = { text, matchedSelector: sel };
+              break;
+            }
+          }
+        } catch {
+          // ignore invalid selector syntax
+        }
+      }
+    }
+  }
+
+  // Check if any field is still missing and we need dynamic rendering
+  const missingFields = fields.filter((f) => !result[f.id]);
+  if (missingFields.length === 0) {
+    return result;
+  }
+
+  // 2. Playwright fallback if missing fields and page might be dynamic
+  try {
+    const browserResult = await scrapeBrowserMulti(url, missingFields);
+    for (const [fieldId, match] of Object.entries(browserResult)) {
+      if (match) {
+        result[fieldId] = match;
+      }
+    }
+  } catch {
+    // ignore browser fallback errors, return what we have
+  }
+
+  return result;
 }
