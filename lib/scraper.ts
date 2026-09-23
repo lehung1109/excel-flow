@@ -11,12 +11,6 @@ let browserPromise: Promise<Browser> | null = null;
 let pagesScrapedCount = 0;
 const MAX_PAGES_BEFORE_RECYCLE = 100;
 
-function isVercelServerless(): boolean {
-  // Only true when deployed to Vercel's cloud serverless infrastructure.
-  // Local .env.local created by Vercel CLI often contains VERCEL="1", but VERCEL_REGION is only present in actual cloud runtime.
-  return Boolean(process.env.VERCEL_REGION || process.env.NOW_REGION);
-}
-
 async function getBrowser(): Promise<Browser> {
   if (browserInstance && pagesScrapedCount >= MAX_PAGES_BEFORE_RECYCLE) {
     await closeBrowser();
@@ -28,48 +22,22 @@ async function getBrowser(): Promise<Browser> {
 
   if (!browserPromise) {
     browserPromise = (async () => {
+      const { chromium } = await import("playwright");
+
       // 1. Optional remote WebSocket CDP endpoint (e.g. Browserless, self-hosted Docker)
       if (process.env.BROWSER_WS_ENDPOINT) {
-        const { chromium: playwrightCore } = await import("playwright-core");
-        return (await playwrightCore.connect(process.env.BROWSER_WS_ENDPOINT)) as unknown as Browser;
+        return (await chromium.connect(process.env.BROWSER_WS_ENDPOINT)) as unknown as Browser;
       }
 
-      // 2. Vercel Serverless cloud environment (Linux runtime)
-      if (isVercelServerless() && process.platform === "linux") {
-        const { chromium: playwrightCore } = await import("playwright-core");
-        const chromium = (await import("@sparticuz/chromium")).default;
-
-        let executablePath: string;
-        try {
-          executablePath = await chromium.executablePath();
-        } catch {
-          const path = await import("node:path");
-          const fs = await import("node:fs");
-          const localBinPath = path.join(process.cwd(), "node_modules/@sparticuz/chromium/bin");
-          if (fs.existsSync(localBinPath)) {
-            executablePath = await chromium.executablePath(localBinPath);
-          } else {
-            throw new Error("Chromium binary not found for Vercel Serverless.");
-          }
-        }
-
-        return (await playwrightCore.launch({
-          args: chromium.args,
-          executablePath,
-          headless: true,
-        })) as unknown as Browser;
-      }
-
-      // 3. Local development / standard server environment
-      const { chromium } = await import("playwright");
-      return chromium.launch({
+      // 2. Standard Playwright launch
+      return (await chromium.launch({
         headless: true,
         args: [
           "--no-sandbox",
           "--disable-setuid-sandbox",
           "--disable-dev-shm-usage",
         ],
-      });
+      })) as unknown as Browser;
     })()
       .then((b) => {
         browserInstance = b as Browser;

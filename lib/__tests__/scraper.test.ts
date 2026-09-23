@@ -396,49 +396,6 @@ describe("scraper", () => {
       expect(result.heading?.text).toBe("Category Target Title");
       expect(result.heading?.matchedSelector).toBe("h1");
     });
-
-    it("allows local dynamic scraping even if process.env.VERCEL is 1 from .env.local", async () => {
-      const prevVercel = process.env.VERCEL;
-      const prevRegion = process.env.VERCEL_REGION;
-      try {
-        process.env.VERCEL = "1";
-        delete process.env.VERCEL_REGION;
-        delete process.env.NOW_REGION;
-
-        const fields = [{ id: "heading", selectors: ["h1"] }];
-        const result = await scrapeMultiField(`${baseUrl}/breadcrumb-page`, fields, {
-          preClickSelector: ".breadcrumb a",
-        });
-
-        expect(result.heading).not.toBeNull();
-        expect(result.heading?.text).toBe("Category Target Title");
-      } finally {
-        if (prevVercel !== undefined) process.env.VERCEL = prevVercel;
-        else delete process.env.VERCEL;
-        if (prevRegion !== undefined) process.env.VERCEL_REGION = prevRegion;
-        else delete process.env.VERCEL_REGION;
-      }
-    });
-
-    it("scrapes data via static link resolution on Vercel cloud when preClickSelector is an anchor link", async () => {
-      const prevRegion = process.env.VERCEL_REGION;
-      try {
-        process.env.VERCEL_REGION = "iad1";
-
-        const fields = [{ id: "heading", selectors: ["h1"] }];
-        const result = await scrapeMultiField(`${baseUrl}/breadcrumb-page`, fields, {
-          preClickSelector: ".breadcrumb a",
-        });
-
-        // Static link resolution should follow .breadcrumb a to the target page even on Vercel cloud
-        expect(result.heading).not.toBeNull();
-        expect(result.heading?.text).toBe("Category Target Title");
-        expect(result.heading?.matchedSelector).toBe("h1");
-      } finally {
-        if (prevRegion !== undefined) process.env.VERCEL_REGION = prevRegion;
-        else delete process.env.VERCEL_REGION;
-      }
-    });
   });
 });
 
