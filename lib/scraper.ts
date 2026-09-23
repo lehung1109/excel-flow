@@ -18,10 +18,6 @@ function isVercelServerless(): boolean {
 }
 
 async function getBrowser(): Promise<Browser> {
-  if (isVercelServerless()) {
-    throw new Error("Playwright dynamic browser is not supported in Vercel Serverless environment.");
-  }
-
   if (browserInstance && pagesScrapedCount >= MAX_PAGES_BEFORE_RECYCLE) {
     await closeBrowser();
   }
@@ -32,6 +28,39 @@ async function getBrowser(): Promise<Browser> {
 
   if (!browserPromise) {
     browserPromise = (async () => {
+      // 1. Optional remote WebSocket CDP endpoint (e.g. Browserless, self-hosted Docker)
+      if (process.env.BROWSER_WS_ENDPOINT) {
+        const { chromium: playwrightCore } = await import("playwright-core");
+        return (await playwrightCore.connect(process.env.BROWSER_WS_ENDPOINT)) as unknown as Browser;
+      }
+
+      // 2. Vercel Serverless cloud environment (Linux runtime)
+      if (isVercelServerless() && process.platform === "linux") {
+        const { chromium: playwrightCore } = await import("playwright-core");
+        const chromium = (await import("@sparticuz/chromium")).default;
+
+        let executablePath: string;
+        try {
+          executablePath = await chromium.executablePath();
+        } catch {
+          const path = await import("node:path");
+          const fs = await import("node:fs");
+          const localBinPath = path.join(process.cwd(), "node_modules/@sparticuz/chromium/bin");
+          if (fs.existsSync(localBinPath)) {
+            executablePath = await chromium.executablePath(localBinPath);
+          } else {
+            throw new Error("Chromium binary not found for Vercel Serverless.");
+          }
+        }
+
+        return (await playwrightCore.launch({
+          args: chromium.args,
+          executablePath,
+          headless: true,
+        })) as unknown as Browser;
+      }
+
+      // 3. Local development / standard server environment
       const { chromium } = await import("playwright");
       return chromium.launch({
         headless: true,
@@ -43,10 +72,10 @@ async function getBrowser(): Promise<Browser> {
       });
     })()
       .then((b) => {
-        browserInstance = b;
+        browserInstance = b as Browser;
         pagesScrapedCount = 0;
         browserPromise = null;
-        return b;
+        return b as Browser;
       })
       .catch((err) => {
         browserPromise = null;
@@ -307,9 +336,6 @@ export async function scrapeDynamic(
   const timeoutMs = typeof options === "number" ? options : options?.timeoutMs ?? 8000;
   const preClickSelector = typeof options === "object" ? options?.preClickSelector : undefined;
 
-  if (isVercelServerless()) {
-    return null;
-  }
 
   // If running in Bun on Windows, use Node worker bridge to bypass Bun Windows pipe IPC bug
   const isBunOnWindows =
@@ -655,9 +681,6 @@ export async function scrapeBrowserMulti(
   const timeoutMs = typeof options === "number" ? options : options?.timeoutMs ?? 8000;
   const preClickSelector = typeof options === "object" ? options?.preClickSelector : undefined;
 
-  if (isVercelServerless()) {
-    return createEmptyMultiFieldResult(fields);
-  }
 
   const isBunOnWindows =
     process.platform === "win32" &&

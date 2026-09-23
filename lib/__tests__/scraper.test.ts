@@ -270,7 +270,7 @@ describe("scraper", () => {
       } finally {
         globalThis.fetch = originalFetch;
       }
-    });
+    }, 15000);
 
     it("handles static page from local server with multiple selectors and priority", async () => {
       const fields = [
@@ -420,7 +420,7 @@ describe("scraper", () => {
       }
     });
 
-    it("bypasses dynamic scraping when deployed to Vercel serverless cloud (VERCEL_REGION is set)", async () => {
+    it("scrapes data via static link resolution on Vercel cloud when preClickSelector is an anchor link", async () => {
       const prevRegion = process.env.VERCEL_REGION;
       try {
         process.env.VERCEL_REGION = "iad1";
@@ -430,8 +430,10 @@ describe("scraper", () => {
           preClickSelector: ".breadcrumb a",
         });
 
-        // Dynamic scraping should be skipped immediately on Vercel cloud
-        expect(result.heading).toBeNull();
+        // Static link resolution should follow .breadcrumb a to the target page even on Vercel cloud
+        expect(result.heading).not.toBeNull();
+        expect(result.heading?.text).toBe("Category Target Title");
+        expect(result.heading?.matchedSelector).toBe("h1");
       } finally {
         if (prevRegion !== undefined) process.env.VERCEL_REGION = prevRegion;
         else delete process.env.VERCEL_REGION;

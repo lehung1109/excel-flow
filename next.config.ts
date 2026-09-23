@@ -2,7 +2,10 @@ import { withSentryConfig } from "@sentry/nextjs/config";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["playwright"],
+  serverExternalPackages: ["@sparticuz/chromium", "playwright-core", "playwright"],
+  outputFileTracingIncludes: {
+    "/api/**/*": ["node_modules/@sparticuz/chromium/bin/**/*"],
+  },
 };
 
 export default withSentryConfig(nextConfig, {
