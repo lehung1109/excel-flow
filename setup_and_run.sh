@@ -1,15 +1,29 @@
 #!/usr/bin/env bash
 
-# Thoat ngay neu co loi nghiem trong o cac buoc can thiet
+# Thoat ngay neu co loi o cac buoc can thiet
 set -e
 
 echo "======================================================="
-echo "         EXCEL-FLOW SETUP AND RUN SCRIPT (macOS)"
+echo "      EXCEL-FLOW SETUP AND RUN SCRIPT (macOS / Linux)"
 echo "======================================================="
 echo ""
 
 # Chuyen toi thu muc chua file script
 cd "$(cd "$(dirname "$0")" && pwd)"
+
+# ---------------------------------------------------------
+# 0. KHOI TAO PATH CHO CAC CONG CU PHO BIEN (macOS / Linux)
+# ---------------------------------------------------------
+if [ -d "/opt/homebrew/bin" ]; then
+    export PATH="/opt/homebrew/bin:$PATH"
+fi
+if [ -d "/usr/local/bin" ]; then
+    export PATH="/usr/local/bin:$PATH"
+fi
+export BUN_INSTALL="$HOME/.bun"
+if [ -d "$BUN_INSTALL/bin" ]; then
+    export PATH="$BUN_INSTALL/bin:$PATH"
+fi
 
 # ---------------------------------------------------------
 # 1. KIEM TRA VA CAI DAT GIT
@@ -52,11 +66,6 @@ echo ""
 # 3. KIEM TRA VA CAI DAT BUN
 # ---------------------------------------------------------
 echo "[3/6] Kiem tra Bun..."
-export BUN_INSTALL="$HOME/.bun"
-if [ -d "$BUN_INSTALL/bin" ]; then
-    export PATH="$BUN_INSTALL/bin:$PATH"
-fi
-
 if ! command -v bun >/dev/null 2>&1; then
     echo "[!] Bun chua duoc cai dat. Dang tien hanh cai dat Bun..."
     curl -fsSL https://bun.sh/install | bash
@@ -78,20 +87,20 @@ echo ""
 echo "[4/6] Kiem tra ma nguon du an..."
 if [ -d ".git" ]; then
     echo "[*] Thu muc hien tai la Git repository."
-    echo "[*] Dang chuyen sang branch main va pull code moi nhat..."
-    git checkout main
-    git pull origin main
+    echo "[*] Dang cap nhat code moi nhat..."
+    git checkout main 2>/dev/null || true
+    git pull origin main 2>/dev/null || echo "[!] Khong the pull code moi nhat (offline hoac co xung dot). Tiep tuc voi ma nguon hien tai..."
 elif [ -d "excel-flow/.git" ]; then
     echo "[*] Thu muc excel-flow da ton tai. Dang chuyen vao excel-flow..."
     cd excel-flow
-    echo "[*] Dang chuyen sang branch main va pull code moi nhat..."
-    git checkout main
-    git pull origin main
+    echo "[*] Dang cap nhat code moi nhat..."
+    git checkout main 2>/dev/null || true
+    git pull origin main 2>/dev/null || echo "[!] Khong the pull code moi nhat (offline hoac co xung dot). Tiep tuc voi ma nguon hien tai..."
 else
     echo "[*] Thu muc chua co code. Dang clone du an tu GitHub..."
     git clone https://github.com/lehung1109/excel-flow.git
     cd excel-flow
-    git checkout main
+    git checkout main 2>/dev/null || true
 fi
 echo ""
 
@@ -99,16 +108,16 @@ echo ""
 # 5. THIET LAP FILE MOI TRUONG (.env.local)
 # ---------------------------------------------------------
 echo "[5/6] Thiet lap file moi truong (.env.local)..."
-if [ ! -f ".env.local" ]; then
+if [ ! -s ".env.local" ]; then
     if [ -f ".env.example" ]; then
         echo "[*] Dang copy .env.example sang .env.local..."
         cp .env.example .env.local
-        echo "[OK] Da tao file .env.local thanh cong."
+        echo "[OK] Da tao file .env.local thanh cong tu .env.example."
     else
         echo "[WARNING] Khong tim thay file .env.example de tao .env.local."
     fi
 else
-    echo "[OK] File .env.local da ton tai."
+    echo "[OK] File .env.local da ton tai va hop le."
 fi
 echo ""
 
@@ -119,14 +128,16 @@ echo "[6/6] Cai dat dependencies va khoi chay..."
 echo "[*] Dang chay: bun install..."
 bun install
 
-echo "[*] Dang chay: playwright install..."
-if ! bunx playwright install; then
-    echo "[WARNING] bunx playwright install gap su co, dang thu lai voi npx playwright install..."
-    npx playwright install
+echo "[*] Dang chay: playwright install chromium..."
+if ! bunx playwright install chromium; then
+    echo "[WARNING] bunx playwright install chromium gap su co, dang thu lai voi npx..."
+    npx playwright install chromium
 fi
 
 echo ""
 echo "======================================================="
 echo "         KHOI DONG DU AN (bun run dev)"
+echo "  Ung dung se san sang tai: http://localhost:3000"
+echo "  Nhan Ctrl + C de dung server bat ky luc nao."
 echo "======================================================="
 bun run dev

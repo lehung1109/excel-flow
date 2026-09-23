@@ -2,12 +2,19 @@
 setlocal enabledelayedexpansion
 
 echo =======================================================
-echo          EXCEL-FLOW SETUP AND RUN SCRIPT
+echo          EXCEL-FLOW SETUP AND RUN SCRIPT (Windows)
 echo =======================================================
 echo.
 
 REM Chuyen toi thu muc chua file batch
 cd /d "%~dp0"
+
+REM ---------------------------------------------------------
+REM 0. KHOI TAO PATH CHO CAC CONG CU PHO BIEN
+REM ---------------------------------------------------------
+if exist "%USERPROFILE%\.bun\bin" set "PATH=%USERPROFILE%\.bun\bin;!PATH!"
+if exist "C:\Program Files\nodejs" set "PATH=C:\Program Files\nodejs;!PATH!"
+if exist "C:\Program Files\Git\cmd" set "PATH=C:\Program Files\Git\cmd;!PATH!"
 
 REM ---------------------------------------------------------
 REM 1. KIEM TRA VA CAI DAT GIT
@@ -75,15 +82,15 @@ REM ---------------------------------------------------------
 echo [4/6] Kiem tra ma nguon du an...
 if exist ".git" (
     echo [*] Thu muc hien tai la Git repository.
-    echo [*] Dang chuyen sang branch main va pull code moi nhat...
-    git checkout main
-    git pull origin main
+    echo [*] Dang cap nhat code moi nhat...
+    git checkout main 2>nul
+    git pull origin main 2>nul || echo [!] Khong the pull code moi nhat (offline hoac co xung dot). Tiep tuc voi ma nguon hien tai...
 ) else if exist "excel-flow\.git" (
     echo [*] Thu muc excel-flow da ton tai. Dang chuyen vao excel-flow...
     cd excel-flow
-    echo [*] Dang chuyen sang branch main va pull code moi nhat...
-    git checkout main
-    git pull origin main
+    echo [*] Dang cap nhat code moi nhat...
+    git checkout main 2>nul
+    git pull origin main 2>nul || echo [!] Khong the pull code moi nhat (offline hoac co xung dot). Tiep tuc voi ma nguon hien tai...
 ) else (
     echo [*] Thu muc chua co code. Dang clone du an tu GitHub...
     git clone https://github.com/lehung1109/excel-flow.git
@@ -93,7 +100,7 @@ if exist ".git" (
         exit /b 1
     )
     cd excel-flow
-    git checkout main
+    git checkout main 2>nul
 )
 echo.
 
@@ -101,16 +108,23 @@ REM ---------------------------------------------------------
 REM 5. THIET LAP FILE MOI TRUONG (.env.local)
 REM ---------------------------------------------------------
 echo [5/6] Thiet lap file moi truong (.env.local)...
+set "COPY_ENV=0"
 if not exist ".env.local" (
+    set "COPY_ENV=1"
+) else (
+    for %%F in (".env.local") do if %%~zF equ 0 set "COPY_ENV=1"
+)
+
+if "!COPY_ENV!"=="1" (
     if exist ".env.example" (
         echo [*] Dang copy .env.example sang .env.local...
         copy /y ".env.example" ".env.local" >nul
-        echo [OK] Da tao file .env.local thanh cong.
+        echo [OK] Da tao file .env.local thanh cong tu .env.example.
     ) else (
         echo [WARNING] Khong tim thay file .env.example de tao .env.local.
     )
 ) else (
-    echo [OK] File .env.local da ton tai.
+    echo [OK] File .env.local da ton tai va hop le.
 )
 echo.
 
@@ -126,16 +140,18 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-echo [*] Dang chay: playwright install...
-call bunx playwright install
+echo [*] Dang chay: playwright install chromium...
+call bunx playwright install chromium
 if %errorlevel% neq 0 (
-    echo [WARNING] bunx playwright install gap su co, dang thu lai voi npx playwright install...
-    call npx playwright install
+    echo [WARNING] bunx playwright install chromium gap su co, dang thu lai voi npx...
+    call npx playwright install chromium
 )
 
 echo.
 echo =======================================================
 echo          KHOI DONG DU AN (bun run dev)
+echo  Ung dung se san sang tai: http://localhost:3000
+echo  Nhan Ctrl + C de dung server bat ky luc nao.
 echo =======================================================
 call bun run dev
 
