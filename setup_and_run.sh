@@ -14,7 +14,7 @@ cd "$(cd "$(dirname "$0")" && pwd)"
 # ---------------------------------------------------------
 # 1. KIEM TRA VA CAI DAT GIT
 # ---------------------------------------------------------
-echo "[1/5] Kiem tra Git..."
+echo "[1/6] Kiem tra Git..."
 if ! command -v git >/dev/null 2>&1; then
     echo "[!] Git chua duoc cai dat."
     if command -v brew >/dev/null 2>&1; then
@@ -33,7 +33,7 @@ echo ""
 # ---------------------------------------------------------
 # 2. KIEM TRA VA CAI DAT NODE.JS
 # ---------------------------------------------------------
-echo "[2/5] Kiem tra Node.js..."
+echo "[2/6] Kiem tra Node.js..."
 if ! command -v node >/dev/null 2>&1; then
     echo "[!] Node.js chua duoc cai dat."
     if command -v brew >/dev/null 2>&1; then
@@ -51,7 +51,7 @@ echo ""
 # ---------------------------------------------------------
 # 3. KIEM TRA VA CAI DAT BUN
 # ---------------------------------------------------------
-echo "[3/5] Kiem tra Bun..."
+echo "[3/6] Kiem tra Bun..."
 export BUN_INSTALL="$HOME/.bun"
 if [ -d "$BUN_INSTALL/bin" ]; then
     export PATH="$BUN_INSTALL/bin:$PATH"
@@ -75,7 +75,7 @@ echo ""
 # ---------------------------------------------------------
 # 4. XU LY REPOSITORY VA PULL CODE MOI NHAT
 # ---------------------------------------------------------
-echo "[4/5] Kiem tra ma nguon du an..."
+echo "[4/6] Kiem tra ma nguon du an..."
 if [ -d ".git" ]; then
     echo "[*] Thu muc hien tai la Git repository."
     echo "[*] Dang chuyen sang branch main va pull code moi nhat..."
@@ -96,9 +96,26 @@ fi
 echo ""
 
 # ---------------------------------------------------------
-# 5. CAI DAT DEPENDENCIES VA KHOI CHAY DU AN
+# 5. THIET LAP FILE MOI TRUONG (.env.local)
 # ---------------------------------------------------------
-echo "[5/5] Cai dat dependencies va khoi chay..."
+echo "[5/6] Thiet lap file moi truong (.env.local)..."
+if [ ! -f ".env.local" ]; then
+    if [ -f ".env.example" ]; then
+        echo "[*] Dang copy .env.example sang .env.local..."
+        cp .env.example .env.local
+        echo "[OK] Da tao file .env.local thanh cong."
+    else
+        echo "[WARNING] Khong tim thay file .env.example de tao .env.local."
+    fi
+else
+    echo "[OK] File .env.local da ton tai."
+fi
+echo ""
+
+# ---------------------------------------------------------
+# 6. CAI DAT DEPENDENCIES VA KHOI CHAY DU AN
+# ---------------------------------------------------------
+echo "[6/6] Cai dat dependencies va khoi chay..."
 echo "[*] Dang chay: bun install..."
 bun install
 

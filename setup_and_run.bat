@@ -12,7 +12,7 @@ cd /d "%~dp0"
 REM ---------------------------------------------------------
 REM 1. KIEM TRA VA CAI DAT GIT
 REM ---------------------------------------------------------
-echo [1/5] Kiem tra Git...
+echo [1/6] Kiem tra Git...
 where git >nul 2>&1
 if %errorlevel% neq 0 (
     echo [!] Git chua duoc cai dat. Dang tien hanh cai dat Git moi nhat qua winget...
@@ -31,7 +31,7 @@ echo.
 REM ---------------------------------------------------------
 REM 2. KIEM TRA VA CAI DAT NODE.JS (LTS)
 REM ---------------------------------------------------------
-echo [2/5] Kiem tra Node.js...
+echo [2/6] Kiem tra Node.js...
 where node >nul 2>&1
 if %errorlevel% neq 0 (
     echo [!] Node.js chua duoc cai dat. Dang tien hanh cai dat Node.js LTS qua winget...
@@ -50,7 +50,7 @@ echo.
 REM ---------------------------------------------------------
 REM 3. KIEM TRA VA CAI DAT BUN
 REM ---------------------------------------------------------
-echo [3/5] Kiem tra Bun...
+echo [3/6] Kiem tra Bun...
 where bun >nul 2>&1
 if %errorlevel% neq 0 (
     echo [!] Bun chua duoc cai dat. Dang tien hanh cai dat Bun...
@@ -72,7 +72,7 @@ echo.
 REM ---------------------------------------------------------
 REM 4. XU LY REPOSITORY VA PULL CODE MOI NHAT
 REM ---------------------------------------------------------
-echo [4/5] Kiem tra ma nguon du an...
+echo [4/6] Kiem tra ma nguon du an...
 if exist ".git" (
     echo [*] Thu muc hien tai la Git repository.
     echo [*] Dang chuyen sang branch main va pull code moi nhat...
@@ -98,9 +98,26 @@ if exist ".git" (
 echo.
 
 REM ---------------------------------------------------------
-REM 5. CAI DAT DEPENDENCIES VA KHOI CHAY DU AN
+REM 5. THIET LAP FILE MOI TRUONG (.env.local)
 REM ---------------------------------------------------------
-echo [5/5] Cai dat dependencies va khoi chay...
+echo [5/6] Thiet lap file moi truong (.env.local)...
+if not exist ".env.local" (
+    if exist ".env.example" (
+        echo [*] Dang copy .env.example sang .env.local...
+        copy /y ".env.example" ".env.local" >nul
+        echo [OK] Da tao file .env.local thanh cong.
+    ) else (
+        echo [WARNING] Khong tim thay file .env.example de tao .env.local.
+    )
+) else (
+    echo [OK] File .env.local da ton tai.
+)
+echo.
+
+REM ---------------------------------------------------------
+REM 6. CAI DAT DEPENDENCIES VA KHOI CHAY DU AN
+REM ---------------------------------------------------------
+echo [6/6] Cai dat dependencies va khoi chay...
 echo [*] Dang chay: bun install...
 call bun install
 if %errorlevel% neq 0 (
