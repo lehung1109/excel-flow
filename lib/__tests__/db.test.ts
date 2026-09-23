@@ -6,6 +6,8 @@ import {
   updateSavedConfig,
   deleteSavedConfig,
   setSqlExecutorForTesting,
+  isDbConfigured,
+  getSql,
 } from "../db";
 import type { ExtractionFieldConfig } from "@/types/crawler";
 
@@ -91,5 +93,24 @@ describe("Neon DB Layer", () => {
 
     const listAfterDelete = await getSavedConfigs();
     expect(listAfterDelete.length).toBe(0);
+  });
+
+  it("handles unconfigured database gracefully", async () => {
+    setSqlExecutorForTesting(null);
+    const originalDatabaseUrl = process.env.DATABASE_URL;
+    const originalPostgresUrl = process.env.POSTGRES_URL;
+    delete process.env.DATABASE_URL;
+    delete process.env.POSTGRES_URL;
+
+    try {
+      expect(isDbConfigured()).toBe(false);
+      const configs = await getSavedConfigs();
+      expect(configs).toEqual([]);
+
+      expect(() => getSql()).toThrow("Neon DATABASE_URL or POSTGRES_URL environment variable is missing.");
+    } finally {
+      if (originalDatabaseUrl) process.env.DATABASE_URL = originalDatabaseUrl;
+      if (originalPostgresUrl) process.env.POSTGRES_URL = originalPostgresUrl;
+    }
   });
 });

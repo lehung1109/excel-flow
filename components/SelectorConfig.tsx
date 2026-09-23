@@ -152,6 +152,7 @@ export default function SelectorConfig({
 
   // Neon DB Config State
   const [savedConfigs, setSavedConfigs] = useState<SavedConfigRecord[]>([]);
+  const [isDbConfigured, setIsDbConfigured] = useState<boolean>(true);
   const [isLoadingConfigs, setIsLoadingConfigs] = useState(false);
   const [selectedConfigId, setSelectedConfigId] = useState<number | "">("");
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(Boolean(initialSaveModalOpen));
@@ -176,8 +177,13 @@ export default function SelectorConfig({
       const res = await fetch("/api/configs");
       if (res.ok) {
         const data = await res.json();
-        if (data.success && Array.isArray(data.configs)) {
-          setSavedConfigs(data.configs);
+        if (data.success) {
+          if (Array.isArray(data.configs)) {
+            setSavedConfigs(data.configs);
+          }
+          if (typeof data.dbConfigured === "boolean") {
+            setIsDbConfigured(data.dbConfigured);
+          }
         }
       }
     } catch {
@@ -416,10 +422,14 @@ export default function SelectorConfig({
             <select
               value={selectedConfigId}
               onChange={(e) => handleSelectConfig(e.target.value)}
-              disabled={isLoadingConfigs}
+              disabled={isLoadingConfigs || (!isDbConfigured && savedConfigs.length === 0)}
               className="bg-transparent text-slate-700 font-medium focus:outline-none cursor-pointer"
             >
-              <option value="">-- Chọn cấu hình đã lưu --</option>
+              <option value="">
+                {!isDbConfigured
+                  ? "-- Chưa kết nối Database (chỉ cào tạm) --"
+                  : "-- Chọn cấu hình đã lưu --"}
+              </option>
               {savedConfigs.map((cfg) => (
                 <option key={cfg.id} value={cfg.id}>
                   {cfg.name} ({cfg.fields.length} trường)
@@ -861,6 +871,15 @@ export default function SelectorConfig({
               Lưu cấu hình gồm <strong>{currentFields.length} trường</strong> bóc tách vào Neon
               PostgreSQL để tái sử dụng nhanh chóng bất kỳ lúc nào.
             </p>
+
+            {!isDbConfigured && (
+              <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-xs flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <span>
+                  Chưa cấu hình <code>DATABASE_URL</code> trong file <code>.env.local</code>. Bạn vẫn có thể cào dữ liệu bình thường, nhưng cần thiết lập biến môi trường để lưu lại cấu hình.
+                </span>
+              </div>
+            )}
 
             {modalError && (
               <div
