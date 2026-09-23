@@ -286,6 +286,7 @@ run();
         resolve(null);
       });
 
+      child.stdin.on("error", () => {});
       child.stdin.write(payload);
       child.stdin.end();
     });
@@ -387,7 +388,7 @@ export async function scrapeDynamic(
 
     for (const selector of selectors) {
       try {
-        const el = await page.$(selector);
+        const el = await activePage.$(selector);
         if (el) {
           const rawText = await el.textContent();
           if (rawText) {
@@ -636,6 +637,7 @@ run();
         resolve(createEmptyMultiFieldResult(fields));
       });
 
+      child.stdin.on("error", () => {});
       child.stdin.write(payload);
       child.stdin.end();
     });

@@ -67,6 +67,9 @@ export default function Home() {
   const [progressPercent, setProgressPercent] = useState<number>(0);
   const [processedCount, setProcessedCount] = useState<number>(0);
   const [totalCount, setTotalCount] = useState<number>(0);
+  const [succeededCount, setSucceededCount] = useState<number>(0);
+  const [failedCount, setFailedCount] = useState<number>(0);
+  const [skippedCount, setSkippedCount] = useState<number>(0);
   const [etaSeconds, setEtaSeconds] = useState<number>(0);
   const [logs, setLogs] = useState<DashboardLogRow[]>([]);
   const [summary, setSummary] = useState<CrawlJobSummary | null>(null);
@@ -136,6 +139,9 @@ export default function Home() {
     setProgressPercent(0);
     setProcessedCount(0);
     setTotalCount(0);
+    setSucceededCount(0);
+    setFailedCount(0);
+    setSkippedCount(0);
     setEtaSeconds(0);
 
     if (loadedSheets.length > 0) {
@@ -203,6 +209,9 @@ export default function Home() {
     setProgressPercent(0);
     setProcessedCount(0);
     setTotalCount(0);
+    setSucceededCount(0);
+    setFailedCount(0);
+    setSkippedCount(0);
     setEtaSeconds(0);
     setLogs([]);
     setSummary(null);
@@ -314,8 +323,17 @@ export default function Home() {
               setProcessedCount(data.processedCount ?? 0);
               setTotalCount(data.totalCount ?? 0);
               setEtaSeconds(data.etaSeconds ?? 0);
+
+              if (data.status === "success") {
+                setSucceededCount((c) => c + 1);
+              } else if (data.status === "failed") {
+                setFailedCount((c) => c + 1);
+              } else if (data.status === "skipped") {
+                setSkippedCount((c) => c + 1);
+              }
+
               setLogs((prev) => [
-                ...prev,
+                ...prev.slice(-999),
                 {
                   rowIndex: data.rowIndex,
                   url: data.url,
@@ -483,6 +501,10 @@ export default function Home() {
             onStart={handleStartCrawl}
             onAbort={handleAbortCrawl}
             canStart={canStart}
+            fields={fields}
+            succeededCount={succeededCount}
+            failedCount={failedCount}
+            skippedCount={skippedCount}
           />
         </section>
       </main>

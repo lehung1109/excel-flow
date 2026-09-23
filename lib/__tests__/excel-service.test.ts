@@ -237,5 +237,48 @@ describe("excel-service", () => {
       expect(resWs.getRow(3).getCell(4).value).toBe("Item 2 Title");
       expect(resWs.getRow(3).getCell(5).value).toBe("200k");
     });
+
+    it("avoids column collision when existing target column has index greater than initial maxCol", async () => {
+      const workbook = new ExcelJS.Workbook();
+      const ws = workbook.addWorksheet("Items");
+      ws.addRow(["ID", "URL"]); // 2 columns only
+      ws.addRow([1, "https://example.com/1"]);
+      const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+
+      const fields: ExtractionFieldConfig[] = [
+        {
+          id: "f_existing",
+          name: "ExistingCol3",
+          selectors: [".note"],
+          targetColumn: { mode: "existing", colIndex: 3 },
+        },
+        {
+          id: "f_new",
+          name: "NewCol",
+          selectors: ["h1"],
+          targetColumn: { mode: "new", colName: "NewColumn" },
+        },
+      ];
+
+      const rowResults = new Map<number, Record<string, string>>([
+        [2, { f_existing: "Existing Val", f_new: "New Val" }],
+      ]);
+
+      const outputBuffer = await enrichExcelBufferMultiField({
+        buffer,
+        sheetName: "Items",
+        fields,
+        rowResults,
+      });
+
+      const resWb = new ExcelJS.Workbook();
+      await resWb.xlsx.load(outputBuffer as unknown as ExcelJS.Buffer);
+      const resWs = resWb.getWorksheet("Items")!;
+
+      expect(resWs.getRow(2).getCell(3).value).toBe("Existing Val");
+      expect(resWs.getRow(1).getCell(4).value).toBe("NewColumn");
+      expect(resWs.getRow(2).getCell(4).value).toBe("New Val");
+    });
   });
 });
+

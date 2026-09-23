@@ -7,12 +7,14 @@ export interface TempFileEntry {
 }
 
 export const ONE_HOUR_MS = 60 * 60 * 1000;
+export const MAX_TEMP_FILES = 25;
 
 const tempStore = new Map<string, TempFileEntry>();
 
 /**
  * Remove any expired entries from the in-memory store.
- * Returns the number of expired entries removed.
+ * Also evicts oldest files if store exceeds MAX_TEMP_FILES to prevent OOM.
+ * Returns the number of entries removed.
  */
 export function cleanupExpiredFiles(): number {
   const now = Date.now();
@@ -23,6 +25,20 @@ export function cleanupExpiredFiles(): number {
       removed++;
     }
   }
+
+  if (tempStore.size > MAX_TEMP_FILES) {
+    const sorted = Array.from(tempStore.entries()).sort(
+      (a, b) => a[1].createdAt - b[1].createdAt
+    );
+    while (tempStore.size > MAX_TEMP_FILES && sorted.length > 0) {
+      const oldest = sorted.shift();
+      if (oldest) {
+        tempStore.delete(oldest[0]);
+        removed++;
+      }
+    }
+  }
+
   return removed;
 }
 

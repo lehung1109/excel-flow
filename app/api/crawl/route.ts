@@ -436,6 +436,18 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // Periodic heartbeat to prevent proxies/gateways from dropping idle connections
+      const pingInterval =
+        process.env.NODE_ENV !== "test"
+          ? setInterval(() => {
+              try {
+                controller.enqueue(encoder.encode(": ping\n\n"));
+              } catch {
+                if (pingInterval) clearInterval(pingInterval);
+              }
+            }, 15000)
+          : null;
+
       sendEvent("start", { totalRows });
 
       const startTime = Date.now();
@@ -843,6 +855,9 @@ export async function POST(req: NextRequest) {
           err instanceof Error ? err.message : "Lỗi hệ thống khi xử lý cào dữ liệu.";
         sendEvent("error", { message });
       } finally {
+        if (pingInterval) {
+          clearInterval(pingInterval);
+        }
         try {
           controller.close();
         } catch {

@@ -47,6 +47,7 @@ export interface FieldCrawlResult {
   text: string;
   matchedSelector?: string;
   error?: string;
+  fieldName?: string;
 }
 
 export interface MultiFieldRowResult {
@@ -86,6 +87,7 @@ export type CrawlProgressEvent =
       status: CrawlStatus;
       matchedSelector?: string;
       text?: string;
+      fieldResults?: Record<string, FieldCrawlResult>;
       error?: string;
       progressPercent: number;
       processedCount: number;
@@ -96,6 +98,8 @@ export type CrawlProgressEvent =
       type: "complete";
       success: boolean;
       downloadId: string;
+      filename?: string;
+      fileBase64?: string;
       summary: CrawlJobSummary;
     }
   | { type: "error"; message: string };
