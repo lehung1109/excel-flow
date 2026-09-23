@@ -6,10 +6,10 @@ export function normalizeUrl(raw: unknown): string | null {
   let trimmed = raw.trim();
   if (!trimmed) return null;
 
-  // If missing protocol, prepend https:// if it looks like a domain/path
+  // If missing protocol, prepend https:// if it looks like a domain/path (supports optional port)
   if (!/^https?:\/\//i.test(trimmed)) {
     // Check if it looks like a domain / path
-    if (/^[\w-]+(\.[\w-]+)+[/#?]?/i.test(trimmed)) {
+    if (/^[\w-]+(\.[\w-]+)+(:\d+)?[/#?]?/i.test(trimmed)) {
       trimmed = `https://${trimmed}`;
     } else {
       return null;
@@ -31,13 +31,15 @@ export function normalizeUrl(raw: unknown): string | null {
  * Cleans up raw extracted textContent by stripping common HTML entities,
  * normalizing redundant spaces and newlines, and trimming ends.
  */
-export function sanitizeExtractedText(raw: string): string {
-  if (!raw) return "";
+export function sanitizeExtractedText(raw: unknown): string {
+  if (typeof raw !== "string" || !raw) return "";
 
   const cleaned = raw
     .replace(/&nbsp;/gi, " ")
     .replace(/&quot;/gi, '"')
     .replace(/&#39;/gi, "'")
+    .replace(/&#x27;/gi, "'")
+    .replace(/&apos;/gi, "'")
     .replace(/&lt;/gi, "<")
     .replace(/&gt;/gi, ">")
     .replace(/&amp;/gi, "&")

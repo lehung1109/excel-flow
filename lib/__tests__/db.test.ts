@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, mock } from "bun:test";
 import {
   initDb,
+  resetDbInitForTesting,
   getSavedConfigs,
   createSavedConfig,
   updateSavedConfig,
@@ -63,6 +64,23 @@ describe("Neon DB Layer", () => {
   });
 
   it("initializes table schema successfully", async () => {
+    await expect(initDb()).resolves.toBeUndefined();
+  });
+
+  it("recovers from initial schema creation failure and retries on subsequent call", async () => {
+    resetDbInitForTesting();
+    let failFirst = true;
+    const failingSql = mock(() => {
+      if (failFirst) {
+        failFirst = false;
+        return Promise.reject(new Error("Connection timeout"));
+      }
+      return Promise.resolve([]);
+    });
+    setSqlExecutorForTesting(failingSql as any);
+
+    await expect(initDb()).rejects.toThrow("Connection timeout");
+    // Next call retries and succeeds, not permanently holding the rejected promise
     await expect(initDb()).resolves.toBeUndefined();
   });
 

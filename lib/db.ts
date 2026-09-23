@@ -52,7 +52,10 @@ export async function initDb(): Promise<void> {
       } catch {
         // ignore index creation errors if already exists
       }
-    })();
+    })().catch((err) => {
+      initPromise = null;
+      throw err;
+    });
   }
   return initPromise;
 }

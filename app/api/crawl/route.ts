@@ -662,7 +662,8 @@ export async function POST(req: NextRequest) {
             rowResults,
           });
 
-          const fileName = (file as File).name || "excel.xlsx";
+          const rawFileName = (file as File).name || "excel.xlsx";
+          const fileName = rawFileName.replace(/[\r\n"\\/:*?<>|]/g, "_");
           const originalName = fileName.replace(/\.[^/.]+$/, "") || "excel";
           const outputFilename = `${originalName}_updated.xlsx`;
           const downloadId = saveTempFile(enrichedBuffer, outputFilename);
@@ -817,7 +818,8 @@ export async function POST(req: NextRequest) {
             rowResults,
           });
 
-          const fileName = (file as File).name || "excel.xlsx";
+          const rawFileName = (file as File).name || "excel.xlsx";
+          const fileName = rawFileName.replace(/[\r\n"\\/:*?<>|]/g, "_");
           const originalName = fileName.replace(/\.[^/.]+$/, "") || "excel";
           const outputFilename = `${originalName}_updated.xlsx`;
           const downloadId = saveTempFile(enrichedBuffer, outputFilename);

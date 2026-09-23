@@ -9,10 +9,11 @@ const DEFAULT_USER_AGENT =
 let browserInstance: Browser | null = null;
 let browserPromise: Promise<Browser> | null = null;
 let pagesScrapedCount = 0;
+let activeBrowserSessionsCount = 0;
 const MAX_PAGES_BEFORE_RECYCLE = 100;
 
 async function getBrowser(): Promise<Browser> {
-  if (browserInstance && pagesScrapedCount >= MAX_PAGES_BEFORE_RECYCLE) {
+  if (browserInstance && activeBrowserSessionsCount === 0 && pagesScrapedCount >= MAX_PAGES_BEFORE_RECYCLE) {
     await closeBrowser();
   }
 
@@ -160,7 +161,7 @@ async function run() {
     const ctx = await browser.newContext({
       userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
     });
-    const page = await ctx.newPage();
+    let page = await ctx.newPage();
     await page.goto(url, { waitUntil: "domcontentloaded", timeout });
     if (preClickSelector && typeof preClickSelector === "string" && preClickSelector.trim()) {
       try {
@@ -319,6 +320,7 @@ export async function scrapeDynamic(
   let page: Page | null = null;
 
   try {
+    activeBrowserSessionsCount++;
     let launchTimer: ReturnType<typeof setTimeout> | undefined;
     const launchTimeout = new Promise<never>((_, reject) => {
       launchTimer = setTimeout(() => reject(new Error("Browser launch timeout")), 10000);
@@ -409,6 +411,7 @@ export async function scrapeDynamic(
   } catch {
     return null;
   } finally {
+    activeBrowserSessionsCount = Math.max(0, activeBrowserSessionsCount - 1);
     if (page) {
       try {
         await page.close();
@@ -503,7 +506,7 @@ async function run() {
     const ctx = await browser.newContext({
       userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
     });
-    const page = await ctx.newPage();
+    let page = await ctx.newPage();
     await page.goto(url, { waitUntil: "domcontentloaded", timeout });
     if (preClickSelector && typeof preClickSelector === "string" && preClickSelector.trim()) {
       try {
@@ -664,6 +667,7 @@ export async function scrapeBrowserMulti(
   let page: Page | null = null;
 
   try {
+    activeBrowserSessionsCount++;
     let launchTimer: ReturnType<typeof setTimeout> | undefined;
     const launchTimeout = new Promise<never>((_, reject) => {
       launchTimer = setTimeout(() => reject(new Error("Browser launch timeout")), 10000);
@@ -754,6 +758,7 @@ export async function scrapeBrowserMulti(
   } catch {
     return result;
   } finally {
+    activeBrowserSessionsCount = Math.max(0, activeBrowserSessionsCount - 1);
     if (page) {
       try {
         await page.close();

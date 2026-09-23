@@ -15,14 +15,15 @@ export async function GET(
     );
   }
 
-  const encodedFilename = encodeURIComponent(file.filename);
+  const cleanFilename = file.filename.replace(/[\r\n"]/g, "_");
+  const encodedFilename = encodeURIComponent(cleanFilename);
 
   return new NextResponse(new Uint8Array(file.buffer), {
     status: 200,
     headers: {
       "Content-Type":
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="${file.filename}"; filename*=UTF-8''${encodedFilename}`,
+      "Content-Disposition": `attachment; filename="${cleanFilename}"; filename*=UTF-8''${encodedFilename}`,
       "Content-Length": file.buffer.length.toString(),
     },
   });

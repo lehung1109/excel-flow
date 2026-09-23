@@ -11,7 +11,6 @@ import {
   Clock,
   Activity,
   Globe,
-  AlertCircle,
   ExternalLink,
 } from "lucide-react";
 import type {
@@ -130,7 +129,7 @@ export default function LiveProgressDashboard({
           {(downloadUrl || downloadId) && (
             <a
               href={downloadUrl || `/api/download/${downloadId}`}
-              download={downloadFilename || true}
+              download={downloadFilename || "excel_updated.xlsx"}
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium text-sm bg-blue-600 hover:bg-blue-700 text-white cursor-pointer shadow-sm transition-all active:scale-[0.99]"
             >
               <Download className="w-4 h-4" />
@@ -250,11 +249,11 @@ export default function LiveProgressDashboard({
                     </td>
                   </tr>
                 ) : (
-                  recentLogs.map((log) => {
+                  recentLogs.map((log, idx) => {
                     const rowStatus = log.status as CrawlStatus;
                     return (
                       <tr
-                        key={`${log.rowIndex}-${log.url}`}
+                        key={`${log.rowIndex}-${log.url}-${idx}`}
                         className="hover:bg-slate-50/70 transition-colors"
                       >
                         {/* Row index */}

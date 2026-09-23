@@ -179,7 +179,7 @@ describe("POST /api/test-selector", () => {
   it("successfully tests selector against a live mock HTTP server", async () => {
     const server = Bun.serve({
       port: 3098,
-      fetch(req) {
+      fetch(_req) {
         return new Response(
           `<!DOCTYPE html>
           <html>

@@ -13,11 +13,12 @@ import type {
 } from "../crawler";
 
 describe("Crawler Types", () => {
-  it("validates SelectorMatch shape", () => {
+  it("validates SelectorMatch shape and ScrapeMethod", () => {
+    const method: ScrapeMethod = "static";
     const match: SelectorMatch = {
       text: "Sample Title",
       selector: "h1",
-      method: "static",
+      method,
       durationMs: 150,
     };
     expect(match.text).toBe("Sample Title");
@@ -34,10 +35,11 @@ describe("Crawler Types", () => {
   });
 
   it("validates CrawlRowResult shape and statuses", () => {
+    const sStatus: CrawlStatus = "success";
     const successRow: CrawlRowResult = {
       rowIndex: 2,
       url: "https://example.com/product",
-      status: "success",
+      status: sStatus,
       matchedSelector: "h1.title",
       text: "Product Name",
     };

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { FileSpreadsheet, CheckCircle2 } from "lucide-react";
 import FileUploadZone from "@/components/FileUploadZone";
 import SelectorConfig from "@/components/SelectorConfig";
@@ -79,6 +79,15 @@ export default function Home() {
 
   // Abort controller ref
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Revoke object URL on unmount or before new download URL is created
+  useEffect(() => {
+    return () => {
+      if (downloadUrl && downloadUrl.startsWith("blob:")) {
+        URL.revokeObjectURL(downloadUrl);
+      }
+    };
+  }, [downloadUrl]);
 
   // Active sheet summary
   const activeSheet = useMemo(() => {

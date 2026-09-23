@@ -182,7 +182,7 @@ export default function FileUploadZone({
         onSheetChange(summaries[0].name);
       }
       onFileLoaded(file, summaries);
-    } catch (err: any) {
+    } catch {
       setError("Không thể đọc file Excel. Vui lòng kiểm tra lại định dạng file.");
     } finally {
       setLoading(false);

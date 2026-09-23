@@ -159,9 +159,9 @@ export async function enrichExcelBuffer(options: EnrichExcelOptions): Promise<Bu
   if (targetColumn.mode === "existing") {
     targetColIndex = targetColumn.colIndex;
   } else {
-    // Find next available column index after current max column in header row
+    // Find next available column index after current max column in header row or sheet
     const headerRow = worksheet.getRow(1);
-    let maxCol = 0;
+    let maxCol = Math.max(worksheet.columnCount || 0, 0);
     headerRow.eachCell({ includeEmpty: false }, (_cell, colNumber) => {
       if (colNumber > maxCol) {
         maxCol = colNumber;
@@ -206,7 +206,7 @@ export async function enrichExcelBufferMultiField(
   }
 
   const headerRow = worksheet.getRow(1);
-  let maxCol = 0;
+  let maxCol = Math.max(worksheet.columnCount || 0, 0);
   headerRow.eachCell({ includeEmpty: false }, (_cell, colNumber) => {
     if (colNumber > maxCol) {
       maxCol = colNumber;
