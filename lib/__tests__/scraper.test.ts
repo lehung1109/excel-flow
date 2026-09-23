@@ -88,6 +88,35 @@ describe("scraper", () => {
           );
         }
 
+        if (url.pathname === "/breadcrumb-page") {
+          return new Response(
+            `<!DOCTYPE html>
+            <html>
+              <head><meta charset="utf-8"><title>Breadcrumb Page</title></head>
+              <body>
+                <ul class="breadcrumb">
+                  <li><a href="/breadcrumb-target">Category Home</a></li>
+                </ul>
+                <h1>Initial Detail Page Title</h1>
+              </body>
+            </html>`,
+            { headers: { "Content-Type": "text/html; charset=utf-8" } }
+          );
+        }
+
+        if (url.pathname === "/breadcrumb-target") {
+          return new Response(
+            `<!DOCTYPE html>
+            <html>
+              <head><meta charset="utf-8"><title>Breadcrumb Target</title></head>
+              <body>
+                <h1>Category Target Title</h1>
+              </body>
+            </html>`,
+            { headers: { "Content-Type": "text/html; charset=utf-8" } }
+          );
+        }
+
         if (url.pathname === "/not-found") {
           return new Response("Not Found", { status: 404 });
         }
@@ -356,16 +385,59 @@ describe("scraper", () => {
       expect(withClick.revealed?.matchedSelector).toBe(".revealed-data");
     });
 
-    it("scrapeHybrid supports preClickSelector option", async () => {
-      const match = await scrapeHybrid(
-        `${baseUrl}/interactive-page`,
-        [".revealed-data"],
-        { preClickSelector: 'button[type="submit"].btn.btn-primary' }
-      );
-      expect(match).not.toBeNull();
-      expect(match?.text).toBe("Dữ liệu mật sau khi bấm nút");
-      expect(match?.selector).toBe(".revealed-data");
+    it("scrapes data after clicking breadcrumb link when h1 is present on both initial and target pages", async () => {
+      const fields = [{ id: "heading", selectors: ["h1"] }];
+
+      const result = await scrapeMultiField(`${baseUrl}/breadcrumb-page`, fields, {
+        preClickSelector: ".breadcrumb a",
+      });
+
+      expect(result.heading).not.toBeNull();
+      expect(result.heading?.text).toBe("Category Target Title");
+      expect(result.heading?.matchedSelector).toBe("h1");
+    });
+
+    it("allows local dynamic scraping even if process.env.VERCEL is 1 from .env.local", async () => {
+      const prevVercel = process.env.VERCEL;
+      const prevRegion = process.env.VERCEL_REGION;
+      try {
+        process.env.VERCEL = "1";
+        delete process.env.VERCEL_REGION;
+        delete process.env.NOW_REGION;
+
+        const fields = [{ id: "heading", selectors: ["h1"] }];
+        const result = await scrapeMultiField(`${baseUrl}/breadcrumb-page`, fields, {
+          preClickSelector: ".breadcrumb a",
+        });
+
+        expect(result.heading).not.toBeNull();
+        expect(result.heading?.text).toBe("Category Target Title");
+      } finally {
+        if (prevVercel !== undefined) process.env.VERCEL = prevVercel;
+        else delete process.env.VERCEL;
+        if (prevRegion !== undefined) process.env.VERCEL_REGION = prevRegion;
+        else delete process.env.VERCEL_REGION;
+      }
+    });
+
+    it("bypasses dynamic scraping when deployed to Vercel serverless cloud (VERCEL_REGION is set)", async () => {
+      const prevRegion = process.env.VERCEL_REGION;
+      try {
+        process.env.VERCEL_REGION = "iad1";
+
+        const fields = [{ id: "heading", selectors: ["h1"] }];
+        const result = await scrapeMultiField(`${baseUrl}/breadcrumb-page`, fields, {
+          preClickSelector: ".breadcrumb a",
+        });
+
+        // Dynamic scraping should be skipped immediately on Vercel cloud
+        expect(result.heading).toBeNull();
+      } finally {
+        if (prevRegion !== undefined) process.env.VERCEL_REGION = prevRegion;
+        else delete process.env.VERCEL_REGION;
+      }
     });
   });
 });
+
 

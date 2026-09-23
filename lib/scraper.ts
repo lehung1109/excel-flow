@@ -11,8 +11,14 @@ let browserPromise: Promise<Browser> | null = null;
 let pagesScrapedCount = 0;
 const MAX_PAGES_BEFORE_RECYCLE = 100;
 
+function isVercelServerless(): boolean {
+  // Only true when deployed to Vercel's cloud serverless infrastructure.
+  // Local .env.local created by Vercel CLI often contains VERCEL="1", but VERCEL_REGION is only present in actual cloud runtime.
+  return Boolean(process.env.VERCEL_REGION || process.env.NOW_REGION);
+}
+
 async function getBrowser(): Promise<Browser> {
-  if (process.env.VERCEL) {
+  if (isVercelServerless()) {
     throw new Error("Playwright dynamic browser is not supported in Vercel Serverless environment.");
   }
 
@@ -163,12 +169,39 @@ async function run() {
       try {
         const btn = await page.$(preClickSelector.trim());
         if (btn) {
+          const isLink = await btn.evaluate((el) => {
+            const tag = el.tagName.toLowerCase();
+            const href = el.getAttribute("href");
+            return tag === "a" && Boolean(href && !href.startsWith("#") && !href.startsWith("javascript:"));
+          }).catch(() => false);
+
+          const popupPromise = ctx.waitForEvent("page", { timeout: 2000 }).catch(() => null);
           const navPromise = page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 8000 }).catch(() => null);
-          const selPromises = selectors.map((s) => page.waitForSelector(s, { timeout: 5000 }).catch(() => null));
           await btn.click().catch(() => null);
-          await Promise.race([navPromise, Promise.race(selPromises)]);
-          await page.waitForLoadState("domcontentloaded").catch(() => null);
-          await new Promise((r) => setTimeout(r, 200));
+
+          const popup = await popupPromise;
+          if (popup) {
+            await popup.waitForLoadState("domcontentloaded").catch(() => null);
+            page = popup;
+          } else if (isLink) {
+            await navPromise;
+            await page.waitForLoadState("domcontentloaded").catch(() => null);
+            await new Promise((r) => setTimeout(r, 200));
+          } else {
+            const navCompleted = await Promise.race([
+              navPromise,
+              new Promise((r) => setTimeout(r, 1200)),
+            ]);
+            if (!navCompleted) {
+              await Promise.race([
+                ...selectors.map((s) => page.waitForSelector(s, { timeout: 4000 }).catch(() => null)),
+                new Promise((r) => setTimeout(r, 600)),
+              ]);
+            } else {
+              await page.waitForLoadState("domcontentloaded").catch(() => null);
+              await new Promise((r) => setTimeout(r, 200));
+            }
+          }
         }
       } catch {}
     }
@@ -207,7 +240,15 @@ run();
     const cp = (globalThis as any).require ? (globalThis as any).require(cpName) : await import("node:child_process");
 
     return await new Promise((resolve) => {
+      const cpEnv = { ...process.env };
+      const localNodeModules = `${process.cwd()}/node_modules`;
+      cpEnv.NODE_PATH = cpEnv.NODE_PATH
+        ? `${localNodeModules}${process.platform === "win32" ? ";" : ":"}${cpEnv.NODE_PATH}`
+        : localNodeModules;
+
       const child = cp.spawn("node", ["-e", script], {
+        cwd: process.cwd(),
+        env: cpEnv,
         stdio: ["pipe", "pipe", "ignore"],
       });
 
@@ -266,6 +307,10 @@ export async function scrapeDynamic(
   const timeoutMs = typeof options === "number" ? options : options?.timeoutMs ?? 8000;
   const preClickSelector = typeof options === "object" ? options?.preClickSelector : undefined;
 
+  if (isVercelServerless()) {
+    return null;
+  }
+
   // If running in Bun on Windows, use Node worker bridge to bypass Bun Windows pipe IPC bug
   const isBunOnWindows =
     process.platform === "win32" &&
@@ -273,12 +318,6 @@ export async function scrapeDynamic(
 
   if (isBunOnWindows) {
     return await scrapeDynamicViaNodeWorker(url, selectors, { timeoutMs, preClickSelector });
-  }
-
-  // In Vercel Serverless environment, local Playwright browser binaries are not installed.
-  // Return null immediately rather than hanging for 10s and triggering 504 Gateway Timeout.
-  if (process.env.VERCEL) {
-    return null;
   }
 
   const startTime = Date.now();
@@ -307,17 +346,45 @@ export async function scrapeDynamic(
       timeout: timeoutMs,
     });
 
-    const activePage = page;
+    let activePage = page;
     if (preClickSelector && preClickSelector.trim()) {
       try {
         const btn = await activePage.$(preClickSelector.trim());
         if (btn) {
+          const isLink = await btn.evaluate((el) => {
+            const tag = el.tagName.toLowerCase();
+            const href = el.getAttribute("href");
+            return tag === "a" && Boolean(href && !href.startsWith("#") && !href.startsWith("javascript:"));
+          }).catch(() => false);
+
+          const popupPromise = context.waitForEvent("page", { timeout: 2000 }).catch(() => null);
           const navPromise = activePage.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 8000 }).catch(() => null);
-          const selPromises = selectors.map((s) => activePage.waitForSelector(s, { timeout: 5000 }).catch(() => null));
           await btn.click().catch(() => null);
-          await Promise.race([navPromise, Promise.race(selPromises)]);
-          await activePage.waitForLoadState("domcontentloaded").catch(() => null);
-          await new Promise((r) => setTimeout(r, 200));
+
+          const popup = await popupPromise;
+          if (popup) {
+            await popup.waitForLoadState("domcontentloaded").catch(() => null);
+            activePage = popup;
+            page = popup;
+          } else if (isLink) {
+            await navPromise;
+            await activePage.waitForLoadState("domcontentloaded").catch(() => null);
+            await new Promise((r) => setTimeout(r, 200));
+          } else {
+            const navCompleted = await Promise.race([
+              navPromise,
+              new Promise((r) => setTimeout(r, 1200)),
+            ]);
+            if (!navCompleted) {
+              await Promise.race([
+                ...selectors.map((s) => activePage.waitForSelector(s, { timeout: 4000 }).catch(() => null)),
+                new Promise((r) => setTimeout(r, 600)),
+              ]);
+            } else {
+              await activePage.waitForLoadState("domcontentloaded").catch(() => null);
+              await new Promise((r) => setTimeout(r, 200));
+            }
+          }
         }
       } catch {}
     }
@@ -448,13 +515,40 @@ async function run() {
       try {
         const btn = await page.$(preClickSelector.trim());
         if (btn) {
+          const isLink = await btn.evaluate((el) => {
+            const tag = el.tagName.toLowerCase();
+            const href = el.getAttribute("href");
+            return tag === "a" && Boolean(href && !href.startsWith("#") && !href.startsWith("javascript:"));
+          }).catch(() => false);
+
+          const popupPromise = ctx.waitForEvent("page", { timeout: 2000 }).catch(() => null);
           const navPromise = page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 8000 }).catch(() => null);
-          const allSels = fields.flatMap((f) => f.selectors || []);
-          const selPromises = allSels.map((s) => page.waitForSelector(s, { timeout: 5000 }).catch(() => null));
           await btn.click().catch(() => null);
-          await Promise.race([navPromise, Promise.race(selPromises)]);
-          await page.waitForLoadState("domcontentloaded").catch(() => null);
-          await new Promise((r) => setTimeout(r, 200));
+
+          const popup = await popupPromise;
+          if (popup) {
+            await popup.waitForLoadState("domcontentloaded").catch(() => null);
+            page = popup;
+          } else if (isLink) {
+            await navPromise;
+            await page.waitForLoadState("domcontentloaded").catch(() => null);
+            await new Promise((r) => setTimeout(r, 200));
+          } else {
+            const navCompleted = await Promise.race([
+              navPromise,
+              new Promise((r) => setTimeout(r, 1200)),
+            ]);
+            if (!navCompleted) {
+              const allSels = fields.flatMap((f) => f.selectors || []);
+              await Promise.race([
+                ...allSels.map((s) => page.waitForSelector(s, { timeout: 4000 }).catch(() => null)),
+                new Promise((r) => setTimeout(r, 600)),
+              ]);
+            } else {
+              await page.waitForLoadState("domcontentloaded").catch(() => null);
+              await new Promise((r) => setTimeout(r, 200));
+            }
+          }
         }
       } catch {}
     }
@@ -490,7 +584,15 @@ run();
     const cp = (globalThis as any).require ? (globalThis as any).require(cpName) : await import("node:child_process");
 
     return await new Promise((resolve) => {
+      const cpEnv = { ...process.env };
+      const localNodeModules = `${process.cwd()}/node_modules`;
+      cpEnv.NODE_PATH = cpEnv.NODE_PATH
+        ? `${localNodeModules}${process.platform === "win32" ? ";" : ":"}${cpEnv.NODE_PATH}`
+        : localNodeModules;
+
       const child = cp.spawn("node", ["-e", script], {
+        cwd: process.cwd(),
+        env: cpEnv,
         stdio: ["pipe", "pipe", "ignore"],
       });
 
@@ -553,16 +655,16 @@ export async function scrapeBrowserMulti(
   const timeoutMs = typeof options === "number" ? options : options?.timeoutMs ?? 8000;
   const preClickSelector = typeof options === "object" ? options?.preClickSelector : undefined;
 
+  if (isVercelServerless()) {
+    return createEmptyMultiFieldResult(fields);
+  }
+
   const isBunOnWindows =
     process.platform === "win32" &&
     typeof (process as any).versions?.bun === "string";
 
   if (isBunOnWindows) {
     return await scrapeDynamicMultiViaNodeWorker(url, fields, { timeoutMs, preClickSelector });
-  }
-
-  if (process.env.VERCEL) {
-    return createEmptyMultiFieldResult(fields);
   }
 
   const result: Record<string, MultiFieldMatch | null> = createEmptyMultiFieldResult(fields);
@@ -592,18 +694,46 @@ export async function scrapeBrowserMulti(
       timeout: timeoutMs,
     });
 
-    const activePage = page;
+    let activePage = page;
     if (preClickSelector && preClickSelector.trim()) {
       try {
         const btn = await activePage.$(preClickSelector.trim());
         if (btn) {
+          const isLink = await btn.evaluate((el) => {
+            const tag = el.tagName.toLowerCase();
+            const href = el.getAttribute("href");
+            return tag === "a" && Boolean(href && !href.startsWith("#") && !href.startsWith("javascript:"));
+          }).catch(() => false);
+
+          const popupPromise = context.waitForEvent("page", { timeout: 2000 }).catch(() => null);
           const navPromise = activePage.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 8000 }).catch(() => null);
-          const allSels = fields.flatMap((f) => f.selectors || []);
-          const selPromises = allSels.map((s) => activePage.waitForSelector(s, { timeout: 5000 }).catch(() => null));
           await btn.click().catch(() => null);
-          await Promise.race([navPromise, Promise.race(selPromises)]);
-          await activePage.waitForLoadState("domcontentloaded").catch(() => null);
-          await new Promise((r) => setTimeout(r, 200));
+
+          const popup = await popupPromise;
+          if (popup) {
+            await popup.waitForLoadState("domcontentloaded").catch(() => null);
+            activePage = popup;
+            page = popup;
+          } else if (isLink) {
+            await navPromise;
+            await activePage.waitForLoadState("domcontentloaded").catch(() => null);
+            await new Promise((r) => setTimeout(r, 200));
+          } else {
+            const navCompleted = await Promise.race([
+              navPromise,
+              new Promise((r) => setTimeout(r, 1200)),
+            ]);
+            if (!navCompleted) {
+              const allSels = fields.flatMap((f) => f.selectors || []);
+              await Promise.race([
+                ...allSels.map((s) => activePage.waitForSelector(s, { timeout: 4000 }).catch(() => null)),
+                new Promise((r) => setTimeout(r, 600)),
+              ]);
+            } else {
+              await activePage.waitForLoadState("domcontentloaded").catch(() => null);
+              await new Promise((r) => setTimeout(r, 200));
+            }
+          }
         }
       } catch {}
     }
@@ -612,7 +742,7 @@ export async function scrapeBrowserMulti(
       for (const sel of f.selectors) {
         if (!sel || !sel.trim()) continue;
         try {
-          const el = await page.$(sel);
+          const el = await activePage.$(sel);
           if (el) {
             const rawText = await el.textContent();
             if (rawText) {
