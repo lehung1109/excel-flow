@@ -24,7 +24,7 @@ where git >nul 2>&1
 if %errorlevel% neq 0 (
     echo [!] Git chua duoc cai dat. Dang tien hanh cai dat Git moi nhat qua winget...
     winget install --id Git.Git -e --source winget --accept-source-agreements --accept-package-agreements
-    if %errorlevel% neq 0 (
+    if !errorlevel! neq 0 (
         echo [ERROR] Cai dat Git that bai. Vui long cai dat Git thu cong tu https://git-scm.com/
         pause
         exit /b 1
@@ -43,7 +43,7 @@ where node >nul 2>&1
 if %errorlevel% neq 0 (
     echo [!] Node.js chua duoc cai dat. Dang tien hanh cai dat Node.js LTS qua winget...
     winget install --id OpenJS.NodeJS.LTS -e --source winget --accept-source-agreements --accept-package-agreements
-    if %errorlevel% neq 0 (
+    if !errorlevel! neq 0 (
         echo [ERROR] Cai dat Node.js that bai. Vui long cai dat Node.js thu cong tu https://nodejs.org/
         pause
         exit /b 1
@@ -62,7 +62,7 @@ where bun >nul 2>&1
 if %errorlevel% neq 0 (
     echo [!] Bun chua duoc cai dat. Dang tien hanh cai dat Bun...
     powershell -NoProfile -ExecutionPolicy Bypass -Command "irm bun.sh/install.ps1 | iex"
-    if %errorlevel% neq 0 (
+    if !errorlevel! neq 0 (
         echo [ERROR] Cai dat Bun that bai. Vui long kiem tra ket noi mang hoac cai dat thu cong.
         pause
         exit /b 1
@@ -84,17 +84,17 @@ if exist ".git" (
     echo [*] Thu muc hien tai la Git repository.
     echo [*] Dang cap nhat code moi nhat...
     git checkout main 2>nul
-    git pull origin main 2>nul || echo [!] Khong the pull code moi nhat (offline hoac co xung dot). Tiep tuc voi ma nguon hien tai...
+    git pull origin main 2>nul || echo [!] Khong the pull code moi nhat - offline hoac co xung dot. Tiep tuc voi ma nguon hien tai...
 ) else if exist "excel-flow\.git" (
     echo [*] Thu muc excel-flow da ton tai. Dang chuyen vao excel-flow...
     cd excel-flow
     echo [*] Dang cap nhat code moi nhat...
     git checkout main 2>nul
-    git pull origin main 2>nul || echo [!] Khong the pull code moi nhat (offline hoac co xung dot). Tiep tuc voi ma nguon hien tai...
+    git pull origin main 2>nul || echo [!] Khong the pull code moi nhat - offline hoac co xung dot. Tiep tuc voi ma nguon hien tai...
 ) else (
     echo [*] Thu muc chua co code. Dang clone du an tu GitHub...
     git clone https://github.com/lehung1109/excel-flow.git
-    if %errorlevel% neq 0 (
+    if !errorlevel! neq 0 (
         echo [ERROR] Clone repository that bai! Vui long kiem tra URL repo hoac ket noi mang.
         pause
         exit /b 1
@@ -158,9 +158,13 @@ call bun run dev
 if %errorlevel% neq 0 (
     echo.
     echo [!] Server da dung hoac gap loi.
-    pause
 )
 
+echo.
+echo =======================================================
+echo Du an da dung. Nhan phim bat ky de dong cua so...
+echo =======================================================
+pause
 exit /b 0
 
 REM ---------------------------------------------------------
