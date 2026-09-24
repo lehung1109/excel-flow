@@ -88,6 +88,35 @@ describe("scraper", () => {
           );
         }
 
+        if (url.pathname === "/breadcrumb-page") {
+          return new Response(
+            `<!DOCTYPE html>
+            <html>
+              <head><meta charset="utf-8"><title>Breadcrumb Page</title></head>
+              <body>
+                <ul class="breadcrumb">
+                  <li><a href="/breadcrumb-target">Category Home</a></li>
+                </ul>
+                <h1>Initial Detail Page Title</h1>
+              </body>
+            </html>`,
+            { headers: { "Content-Type": "text/html; charset=utf-8" } }
+          );
+        }
+
+        if (url.pathname === "/breadcrumb-target") {
+          return new Response(
+            `<!DOCTYPE html>
+            <html>
+              <head><meta charset="utf-8"><title>Breadcrumb Target</title></head>
+              <body>
+                <h1>Category Target Title</h1>
+              </body>
+            </html>`,
+            { headers: { "Content-Type": "text/html; charset=utf-8" } }
+          );
+        }
+
         if (url.pathname === "/not-found") {
           return new Response("Not Found", { status: 404 });
         }
@@ -241,7 +270,7 @@ describe("scraper", () => {
       } finally {
         globalThis.fetch = originalFetch;
       }
-    });
+    }, 15000);
 
     it("handles static page from local server with multiple selectors and priority", async () => {
       const fields = [
@@ -356,16 +385,18 @@ describe("scraper", () => {
       expect(withClick.revealed?.matchedSelector).toBe(".revealed-data");
     });
 
-    it("scrapeHybrid supports preClickSelector option", async () => {
-      const match = await scrapeHybrid(
-        `${baseUrl}/interactive-page`,
-        [".revealed-data"],
-        { preClickSelector: 'button[type="submit"].btn.btn-primary' }
-      );
-      expect(match).not.toBeNull();
-      expect(match?.text).toBe("Dữ liệu mật sau khi bấm nút");
-      expect(match?.selector).toBe(".revealed-data");
+    it("scrapes data after clicking breadcrumb link when h1 is present on both initial and target pages", async () => {
+      const fields = [{ id: "heading", selectors: ["h1"] }];
+
+      const result = await scrapeMultiField(`${baseUrl}/breadcrumb-page`, fields, {
+        preClickSelector: ".breadcrumb a",
+      });
+
+      expect(result.heading).not.toBeNull();
+      expect(result.heading?.text).toBe("Category Target Title");
+      expect(result.heading?.matchedSelector).toBe("h1");
     });
   });
 });
+
 

@@ -1,12 +1,20 @@
-import { describe, it, expect, beforeEach, mock, spyOn } from "bun:test";
+import { describe, it, expect, beforeEach, afterAll, mock, spyOn } from "bun:test";
 import { NextRequest } from "next/server";
 import { GET as getConfigs, POST as postConfig } from "../route";
 import { PUT as putConfig, DELETE as deleteConfig } from "../[id]/route";
 import * as db from "@/lib/db";
 
 describe("Configs API Routes", () => {
+  const originalDbUrl = process.env.DATABASE_URL;
+
   beforeEach(() => {
     mock.restore();
+    process.env.DATABASE_URL = "postgresql://mock-test-url";
+  });
+
+  afterAll(() => {
+    if (originalDbUrl) process.env.DATABASE_URL = originalDbUrl;
+    else delete process.env.DATABASE_URL;
   });
 
   describe("GET /api/configs", () => {
@@ -39,6 +47,19 @@ describe("Configs API Routes", () => {
       expect(res.status).toBe(500);
       expect(json.success).toBe(false);
       expect(json.error).toBe("Database connection error");
+    });
+
+    it("returns 200 with dbConfigured: false when db is not configured", async () => {
+      spyOn(db, "isDbConfigured").mockReturnValue(false);
+      spyOn(db, "getSavedConfigs").mockResolvedValue([]);
+
+      const res = await getConfigs();
+      const json = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(json.success).toBe(true);
+      expect(json.configs).toEqual([]);
+      expect(json.dbConfigured).toBe(false);
     });
   });
 
@@ -125,6 +146,25 @@ describe("Configs API Routes", () => {
       expect(res.status).toBe(500);
       expect(json.success).toBe(false);
       expect(json.error).toBe("Insert failed");
+    });
+
+    it("returns 503 when db is not configured", async () => {
+      spyOn(db, "isDbConfigured").mockReturnValue(false);
+
+      const req = new NextRequest("http://localhost:3000/api/configs", {
+        method: "POST",
+        body: JSON.stringify({
+          name: "Valid Config",
+          fields: [{ id: "f1", name: "Title", selectors: ["h1"], targetColumn: { mode: "new", colName: "Title" } }],
+        }),
+        headers: { "Content-Type": "application/json" },
+      });
+      const res = await postConfig(req);
+      const json = await res.json();
+
+      expect(res.status).toBe(503);
+      expect(json.success).toBe(false);
+      expect(json.error).toContain("Cơ sở dữ liệu chưa được cấu hình");
     });
   });
 
@@ -228,6 +268,25 @@ describe("Configs API Routes", () => {
       expect(json.success).toBe(false);
       expect(json.error).toBe("Update failed");
     });
+
+    it("returns 503 when db is not configured", async () => {
+      spyOn(db, "isDbConfigured").mockReturnValue(false);
+
+      const req = new NextRequest("http://localhost:3000/api/configs/2", {
+        method: "PUT",
+        body: JSON.stringify({
+          name: "Updated Config",
+          fields: [{ id: "f1", name: "Title", selectors: ["h1"], targetColumn: { mode: "new", colName: "Title" } }],
+        }),
+        headers: { "Content-Type": "application/json" },
+      });
+      const res = await putConfig(req, { params: Promise.resolve({ id: "2" }) });
+      const json = await res.json();
+
+      expect(res.status).toBe(503);
+      expect(json.success).toBe(false);
+      expect(json.error).toContain("Cơ sở dữ liệu chưa được cấu hình");
+    });
   });
 
   describe("DELETE /api/configs/[id]", () => {
@@ -266,6 +325,18 @@ describe("Configs API Routes", () => {
       expect(res.status).toBe(500);
       expect(json.success).toBe(false);
       expect(json.error).toBe("Delete failed");
+    });
+
+    it("returns 503 when db is not configured", async () => {
+      spyOn(db, "isDbConfigured").mockReturnValue(false);
+
+      const req = new NextRequest("http://localhost:3000/api/configs/2", { method: "DELETE" });
+      const res = await deleteConfig(req, { params: Promise.resolve({ id: "2" }) });
+      const json = await res.json();
+
+      expect(res.status).toBe(503);
+      expect(json.success).toBe(false);
+      expect(json.error).toContain("Cơ sở dữ liệu chưa được cấu hình");
     });
   });
 });

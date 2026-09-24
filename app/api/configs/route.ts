@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSavedConfigs, createSavedConfig } from "@/lib/db";
+import { getSavedConfigs, createSavedConfig, isDbConfigured } from "@/lib/db";
 
 export async function GET() {
   try {
+    const configured = isDbConfigured();
     const configs = await getSavedConfigs();
-    return NextResponse.json({ success: true, configs });
+    return NextResponse.json({ success: true, configs, dbConfigured: configured });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Lỗi khi tải danh sách cấu hình từ database.";
     return NextResponse.json({ success: false, error: message }, { status: 500 });
@@ -36,6 +37,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { success: false, error: "Cấu hình phải có ít nhất 1 trường bóc tách." },
         { status: 400 }
+      );
+    }
+
+    if (!isDbConfigured()) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Cơ sở dữ liệu chưa được cấu hình. Vui lòng thiết lập biến môi trường DATABASE_URL trong .env.local để lưu cấu hình.",
+        },
+        { status: 503 }
       );
     }
 

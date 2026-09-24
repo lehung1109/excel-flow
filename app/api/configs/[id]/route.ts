@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { updateSavedConfig, deleteSavedConfig } from "@/lib/db";
+import { updateSavedConfig, deleteSavedConfig, isDbConfigured } from "@/lib/db";
 
 export async function PUT(
   req: NextRequest,
@@ -31,6 +31,17 @@ export async function PUT(
       return NextResponse.json({ success: false, error: "Cấu hình phải có ít nhất 1 trường bóc tách." }, { status: 400 });
     }
 
+    if (!isDbConfigured()) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Cơ sở dữ liệu chưa được cấu hình. Vui lòng thiết lập biến môi trường DATABASE_URL trong .env.local để cập nhật cấu hình.",
+        },
+        { status: 503 }
+      );
+    }
+
     const updated = await updateSavedConfig(id, name, description, fields);
     if (!updated) {
       return NextResponse.json({ success: false, error: "Không tìm thấy cấu hình để cập nhật." }, { status: 404 });
@@ -52,6 +63,17 @@ export async function DELETE(
     const id = parseInt(rawId, 10);
     if (isNaN(id) || id <= 0) {
       return NextResponse.json({ success: false, error: "ID không hợp lệ." }, { status: 400 });
+    }
+
+    if (!isDbConfigured()) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Cơ sở dữ liệu chưa được cấu hình. Vui lòng thiết lập biến môi trường DATABASE_URL trong .env.local để xóa cấu hình.",
+        },
+        { status: 503 }
+      );
     }
 
     const success = await deleteSavedConfig(id);

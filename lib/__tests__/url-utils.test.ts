@@ -20,13 +20,16 @@ describe("url-utils", () => {
       );
     });
 
-    it("prepends https:// if protocol is omitted", () => {
+    it("prepends https:// if protocol is omitted, including when port is present", () => {
       expect(normalizeUrl("example.com/products/item-1")).toBe(
         "https://example.com/products/item-1"
       );
       expect(normalizeUrl("www.google.com")).toBe("https://www.google.com");
       expect(normalizeUrl("subdomain.example.com/api/test")).toBe(
         "https://subdomain.example.com/api/test"
+      );
+      expect(normalizeUrl("example.com:8080/products")).toBe(
+        "https://example.com:8080/products"
       );
     });
 
@@ -51,9 +54,9 @@ describe("url-utils", () => {
     });
 
     it("handles all specified HTML entities", () => {
-      const input = "Quotes: &quot;double&quot; and &#39;single&#39;, tags: &lt;tag&gt;";
+      const input = "Quotes: &quot;double&quot; and &#39;single&#39; and &#x27;hex&#x27; and &apos;apos&apos;, tags: &lt;tag&gt;";
       const result = sanitizeExtractedText(input);
-      expect(result).toBe("Quotes: \"double\" and 'single', tags: <tag>");
+      expect(result).toBe("Quotes: \"double\" and 'single' and 'hex' and 'apos', tags: <tag>");
     });
 
     it("avoids double-unescaping when &amp; is part of an encoded entity", () => {

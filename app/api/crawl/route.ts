@@ -436,6 +436,18 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // Periodic heartbeat to prevent proxies/gateways from dropping idle connections
+      const pingInterval =
+        process.env.NODE_ENV !== "test"
+          ? setInterval(() => {
+              try {
+                controller.enqueue(encoder.encode(": ping\n\n"));
+              } catch {
+                if (pingInterval) clearInterval(pingInterval);
+              }
+            }, 15000)
+          : null;
+
       sendEvent("start", { totalRows });
 
       const startTime = Date.now();
@@ -662,7 +674,8 @@ export async function POST(req: NextRequest) {
             rowResults,
           });
 
-          const fileName = (file as File).name || "excel.xlsx";
+          const rawFileName = (file as File).name || "excel.xlsx";
+          const fileName = rawFileName.replace(/[\r\n"\\/:*?<>|]/g, "_");
           const originalName = fileName.replace(/\.[^/.]+$/, "") || "excel";
           const outputFilename = `${originalName}_updated.xlsx`;
           const downloadId = saveTempFile(enrichedBuffer, outputFilename);
@@ -817,7 +830,8 @@ export async function POST(req: NextRequest) {
             rowResults,
           });
 
-          const fileName = (file as File).name || "excel.xlsx";
+          const rawFileName = (file as File).name || "excel.xlsx";
+          const fileName = rawFileName.replace(/[\r\n"\\/:*?<>|]/g, "_");
           const originalName = fileName.replace(/\.[^/.]+$/, "") || "excel";
           const outputFilename = `${originalName}_updated.xlsx`;
           const downloadId = saveTempFile(enrichedBuffer, outputFilename);
@@ -841,6 +855,9 @@ export async function POST(req: NextRequest) {
           err instanceof Error ? err.message : "Lỗi hệ thống khi xử lý cào dữ liệu.";
         sendEvent("error", { message });
       } finally {
+        if (pingInterval) {
+          clearInterval(pingInterval);
+        }
         try {
           controller.close();
         } catch {

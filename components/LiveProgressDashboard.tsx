@@ -11,13 +11,13 @@ import {
   Clock,
   Activity,
   Globe,
-  AlertCircle,
   ExternalLink,
 } from "lucide-react";
 import type {
   CrawlRowResult,
   CrawlJobSummary,
   CrawlStatus,
+  ExtractionFieldConfig,
   FieldCrawlResult,
   MultiFieldRowResult,
 } from "@/types/crawler";
@@ -42,6 +42,10 @@ export interface LiveProgressDashboardProps {
   onStart: () => void;
   onAbort: () => void;
   canStart: boolean;
+  fields?: ExtractionFieldConfig[];
+  succeededCount?: number;
+  failedCount?: number;
+  skippedCount?: number;
 }
 
 function formatEta(seconds: number): string {
@@ -66,20 +70,41 @@ export default function LiveProgressDashboard({
   onStart,
   onAbort,
   canStart,
+  fields,
+  succeededCount,
+  failedCount,
+  skippedCount,
 }: LiveProgressDashboardProps) {
   // Metrics calculation
   const total = summary ? summary.total : totalCount;
   const succeeded = summary
     ? summary.succeeded
+    : succeededCount !== undefined
+    ? succeededCount
     : logs.filter((l) => l.status === "success").length;
   const failed = summary
     ? summary.failed
+    : failedCount !== undefined
+    ? failedCount
     : logs.filter((l) => l.status === "failed").length;
   const skipped = summary
     ? summary.skipped
+    : skippedCount !== undefined
+    ? skippedCount
     : logs.filter((l) => l.status === "skipped").length;
 
   const safePercent = Math.min(100, Math.max(0, Math.round(progressPercent)));
+
+  // Map field id -> human readable field name for multi-field display
+  const fieldNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    if (fields) {
+      for (const f of fields) {
+        map.set(f.id, f.name || f.id);
+      }
+    }
+    return map;
+  }, [fields]);
 
   // Show up to the 100 most recent logs, latest on top
   const recentLogs = useMemo(() => {
@@ -130,7 +155,7 @@ export default function LiveProgressDashboard({
           {(downloadUrl || downloadId) && (
             <a
               href={downloadUrl || `/api/download/${downloadId}`}
-              download={downloadFilename || true}
+              download={downloadFilename || "excel_updated.xlsx"}
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium text-sm bg-blue-600 hover:bg-blue-700 text-white cursor-pointer shadow-sm transition-all active:scale-[0.99]"
             >
               <Download className="w-4 h-4" />
@@ -250,11 +275,11 @@ export default function LiveProgressDashboard({
                     </td>
                   </tr>
                 ) : (
-                  recentLogs.map((log) => {
+                  recentLogs.map((log, idx) => {
                     const rowStatus = log.status as CrawlStatus;
                     return (
                       <tr
-                        key={`${log.rowIndex}-${log.url}`}
+                        key={`${log.rowIndex}-${log.url}-${idx}`}
                         className="hover:bg-slate-50/70 transition-colors"
                       >
                         {/* Row index */}
@@ -313,15 +338,18 @@ export default function LiveProgressDashboard({
                             <div className="flex flex-wrap gap-1">
                               {Object.entries(log.fieldResults)
                                 .filter(([_, f]) => f.matchedSelector)
-                                .map(([fName, f]) => (
-                                  <code
-                                    key={fName}
-                                    className="px-1.5 py-0.5 bg-slate-100 border border-slate-200 rounded text-[11px] text-slate-700"
-                                    title={`${fName}: ${f.matchedSelector}`}
-                                  >
-                                    {f.matchedSelector}
-                                  </code>
-                                ))}
+                                .map(([fName, f]) => {
+                                  const displayName = f.fieldName || fieldNameMap.get(fName) || fName;
+                                  return (
+                                    <code
+                                      key={fName}
+                                      className="px-1.5 py-0.5 bg-slate-100 border border-slate-200 rounded text-[11px] text-slate-700"
+                                      title={`${displayName}: ${f.matchedSelector}`}
+                                    >
+                                      {f.matchedSelector}
+                                    </code>
+                                  );
+                                })}
                             </div>
                           ) : (
                             <span className="text-slate-400">-</span>
@@ -334,6 +362,7 @@ export default function LiveProgressDashboard({
                             <div className="flex flex-wrap gap-1.5">
                               {Object.entries(log.fieldResults).map(([fName, fRes]) => {
                                 const hasValue = Boolean(fRes.text);
+                                const displayName = fRes.fieldName || fieldNameMap.get(fName) || fName;
                                 return (
                                   <span
                                     key={fName}
@@ -344,7 +373,7 @@ export default function LiveProgressDashboard({
                                     }`}
                                     title={fRes.text || fRes.error || undefined}
                                   >
-                                    <span className="font-semibold text-slate-700">{fName}:</span>
+                                    <span className="font-semibold text-slate-700">{displayName}:</span>
                                     <span className="truncate max-w-[200px]">
                                       {fRes.text || fRes.error || "(trống)"}
                                     </span>

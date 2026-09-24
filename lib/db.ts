@@ -7,6 +7,13 @@ export function setSqlExecutorForTesting(executor: NeonQueryFunction<false, fals
   customSqlExecutor = executor;
 }
 
+export function isDbConfigured(): boolean {
+  if (customSqlExecutor) {
+    return true;
+  }
+  return Boolean(process.env.DATABASE_URL || process.env.POSTGRES_URL);
+}
+
 export function getSql() {
   if (customSqlExecutor) {
     return customSqlExecutor;
@@ -45,13 +52,19 @@ export async function initDb(): Promise<void> {
       } catch {
         // ignore index creation errors if already exists
       }
-    })();
+    })().catch((err) => {
+      initPromise = null;
+      throw err;
+    });
   }
   return initPromise;
 }
 
 
 export async function getSavedConfigs(): Promise<SavedConfigRecord[]> {
+  if (!isDbConfigured()) {
+    return [];
+  }
   const sql = getSql();
   await initDb();
   const rows = await sql`

@@ -159,9 +159,9 @@ export async function enrichExcelBuffer(options: EnrichExcelOptions): Promise<Bu
   if (targetColumn.mode === "existing") {
     targetColIndex = targetColumn.colIndex;
   } else {
-    // Find next available column index after current max column in header row
+    // Find next available column index after current max column in header row or sheet
     const headerRow = worksheet.getRow(1);
-    let maxCol = 0;
+    let maxCol = Math.max(worksheet.columnCount || 0, 0);
     headerRow.eachCell({ includeEmpty: false }, (_cell, colNumber) => {
       if (colNumber > maxCol) {
         maxCol = colNumber;
@@ -206,12 +206,25 @@ export async function enrichExcelBufferMultiField(
   }
 
   const headerRow = worksheet.getRow(1);
-  let maxCol = 0;
+  let maxCol = Math.max(worksheet.columnCount || 0, 0);
+  const usedColumns = new Set<number>();
+
   headerRow.eachCell({ includeEmpty: false }, (_cell, colNumber) => {
+    usedColumns.add(colNumber);
     if (colNumber > maxCol) {
       maxCol = colNumber;
     }
   });
+
+  // Track all explicitly targeted existing columns so new columns don't collide
+  for (const field of fields) {
+    if (field.targetColumn.mode === "existing") {
+      usedColumns.add(field.targetColumn.colIndex);
+      if (field.targetColumn.colIndex > maxCol) {
+        maxCol = field.targetColumn.colIndex;
+      }
+    }
+  }
 
   // Map each field to its assigned column index in the sheet
   const fieldColumnMap = new Map<string, number>();
@@ -221,6 +234,10 @@ export async function enrichExcelBufferMultiField(
       fieldColumnMap.set(field.id, field.targetColumn.colIndex);
     } else {
       maxCol += 1;
+      while (usedColumns.has(maxCol)) {
+        maxCol += 1;
+      }
+      usedColumns.add(maxCol);
       const targetColIndex = maxCol;
       fieldColumnMap.set(field.id, targetColIndex);
 

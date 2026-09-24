@@ -1,11 +1,14 @@
 import { describe, it, expect, beforeEach, mock } from "bun:test";
 import {
   initDb,
+  resetDbInitForTesting,
   getSavedConfigs,
   createSavedConfig,
   updateSavedConfig,
   deleteSavedConfig,
   setSqlExecutorForTesting,
+  isDbConfigured,
+  getSql,
 } from "../db";
 import type { ExtractionFieldConfig } from "@/types/crawler";
 
@@ -64,6 +67,23 @@ describe("Neon DB Layer", () => {
     await expect(initDb()).resolves.toBeUndefined();
   });
 
+  it("recovers from initial schema creation failure and retries on subsequent call", async () => {
+    resetDbInitForTesting();
+    let failFirst = true;
+    const failingSql = mock(() => {
+      if (failFirst) {
+        failFirst = false;
+        return Promise.reject(new Error("Connection timeout"));
+      }
+      return Promise.resolve([]);
+    });
+    setSqlExecutorForTesting(failingSql as any);
+
+    await expect(initDb()).rejects.toThrow("Connection timeout");
+    // Next call retries and succeeds, not permanently holding the rejected promise
+    await expect(initDb()).resolves.toBeUndefined();
+  });
+
   it("creates, retrieves, updates, and deletes saved configs", async () => {
     const fields: ExtractionFieldConfig[] = [
       {
@@ -91,5 +111,24 @@ describe("Neon DB Layer", () => {
 
     const listAfterDelete = await getSavedConfigs();
     expect(listAfterDelete.length).toBe(0);
+  });
+
+  it("handles unconfigured database gracefully", async () => {
+    setSqlExecutorForTesting(null);
+    const originalDatabaseUrl = process.env.DATABASE_URL;
+    const originalPostgresUrl = process.env.POSTGRES_URL;
+    delete process.env.DATABASE_URL;
+    delete process.env.POSTGRES_URL;
+
+    try {
+      expect(isDbConfigured()).toBe(false);
+      const configs = await getSavedConfigs();
+      expect(configs).toEqual([]);
+
+      expect(() => getSql()).toThrow("Neon DATABASE_URL or POSTGRES_URL environment variable is missing.");
+    } finally {
+      if (originalDatabaseUrl) process.env.DATABASE_URL = originalDatabaseUrl;
+      if (originalPostgresUrl) process.env.POSTGRES_URL = originalPostgresUrl;
+    }
   });
 });

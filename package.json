@@ -6,10 +6,12 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "generate:stress-test": "bun run scripts/create_stress_test_excel.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
+    "@sentry/nextjs": "10",
     "cheerio": "^1.2.0",
     "exceljs": "^4.4.0",
     "lucide-react": "^1.47.0",
