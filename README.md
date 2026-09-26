@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>Giải pháp cào dữ liệu website tự động đa luồng và làm giàu trực tiếp vào bảng tính Excel (.xlsx, .xls) bảo toàn 100% định dạng gốc.</strong>
+  <strong>Giải pháp cào dữ liệu website tự động đa luồng và làm giàu trực tiếp vào bảng tính Excel (.xlsx, .xls) bảo toàn 100% định dạng gốc</strong>
 </p>
 
 <p align="center">
